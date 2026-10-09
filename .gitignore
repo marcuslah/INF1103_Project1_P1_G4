@@ -1,6 +1,7 @@
 # Security
 .env
 *.env
+!.env.example
 
 # Python cache
 __pycache__/
@@ -16,6 +17,9 @@ ENV/
 # Editor configuration
 .vscode/
 .idea/
+
+# Testing cache
+.pytest_cache/
 
 # Operating system files
 .DS_Store
