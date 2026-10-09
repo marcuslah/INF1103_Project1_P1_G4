@@ -1,28 +1,27 @@
-# Security - NEVER commit API keys or environment variables
+# Security
 .env
 *.env
 
-# Python Bytecode & Cache
+# Python cache
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Virtual Environments
+# Virtual environments
 venv/
 .venv/
 env/
 ENV/
 
-# IDE / Editor configuration folders
+# Editor configuration
 .vscode/
 .idea/
 
-# Operating System temporary files
+# Operating system files
 .DS_Store
 Thumbs.db
 
-# Project generated artifacts (optional, keep git history clean)
+# Generated files
 *.ics
 study_state.json
 study_guide.md
-*.pyc
