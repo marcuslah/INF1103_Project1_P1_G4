@@ -25,3 +25,4 @@ Thumbs.db
 *.ics
 study_state.json
 study_guide.md
+*.pyc
