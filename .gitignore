@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 # Security - NEVER commit API keys or environment variables
 .env
 *.env
@@ -25,3 +26,8 @@ Thumbs.db
 *.ics
 study_state.json
 study_guide.md
+=======
+__pycache__/
+.env
+*.pyc
+>>>>>>> Stashed changes
