@@ -1,10 +1,3 @@
-"""ai_manager.py — OpenRouter (DeepSeek) integration with fault tolerance.
-
-Owner: Member 5 (AI Pipeline).
-Style: 100% procedural -- no ``class`` keyword anywhere.
-Boundary: no console output or keyboard input belongs here (see io_manager.py).
-"""
-
 from __future__ import annotations
 
 import json
@@ -128,6 +121,8 @@ def error_response(code: str, message: str) -> dict[str, Any]:
     }
 
 
+
+
 def call_openrouter(messages: list[dict], timeout: int = DEFAULT_TIMEOUT, max_retries: int = 3) -> dict[str, Any]:
     """POST to Gemini endpoint with retry logic for 503/429 transient errors."""
     api_key = get_api_key()
@@ -177,11 +172,7 @@ def call_openrouter(messages: list[dict], timeout: int = DEFAULT_TIMEOUT, max_re
 # --------------------------- sanitizer + parsing ---------------------------
 
 def sanitize_json(raw: str | None) -> str:
-    """Strip ``` fences / stray prose and return the raw JSON substring.
-
-    DeepSeek models often wrap JSON inside ```json ... ``` code fences; this
-    procedural sanitizer removes the fences and any surrounding text.
-    """
+    """Remove code fences and extract the first JSON object or array from the text."""
     if raw is None:
         return ""
     kept_lines: list[str] = []
