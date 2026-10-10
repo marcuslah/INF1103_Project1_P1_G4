@@ -610,3 +610,215 @@ def compute_metrics(
         "deadline_clashes": clashes,
     }
 
+def evaluate_task(task: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    """Apply rules R1-R7 (first match wins) and return a decision record."""
+    capacity = _to_float(context.get("weekly_capacity_minutes"), WEEKLY_CAPACITY_MINUTES) or WEEKLY_CAPACITY_MINUTES
+    current_minutes = _to_float(context.get("current_minutes"))
+    burnout = _to_float(context.get("burnout_index"))
+    clash_ids = {str(x) for x in context.get("clash_task_ids", [])}
+    today = context.get("today")
+    if not isinstance(today, date):
+        today = date.today()
+    minutes = compute_study_minutes(task)
+    priority = _norm_priority(task.get("priority"))
+    category = _norm_category(task.get("category"))
+    deadline = parse_date(task.get("deadline", ""))
+    days_until = (deadline - today).days if deadline is not None else None
+
+    if category == "reading" and priority == "low" and (current_minutes + minutes) > capacity:
+        return _decision(task, "REJECT", "R1", "Low-value reading pushes the week over the capacity cap")
+    if priority == "low" and minutes < TRIVIAL_MINUTES:
+        return _decision(task, "REJECT", "R2", f"Trivial task ({minutes} min) with low priority")
+    if category in HIGH_IMPORTANCE_CATEGORIES and days_until is not None and days_until <= IMMINENT_DAYS:
+        return _decision(task, "FLAG", "R3", f"High-importance {category} due within {IMMINENT_DAYS} days")
+    if burnout >= BURNOUT_FLAG_THRESHOLD:
+        return _decision(task, "FLAG", "R4", f"Projected burnout risk (index {burnout})")
+    if str(task.get("task_id", "")) in clash_ids:
+        return _decision(task, "FLAG", "R5", "Deadline clash with other task(s)")
+    if minutes > SINGLE_TASK_OVERLOAD_MINUTES:
+        return _decision(task, "FLAG", "R6", f"Single-task overload (> {SINGLE_TASK_OVERLOAD_MINUTES} min)")
+    return _decision(task, "ACCEPT", "R7", "Within capacity and no risk conditions met")
+
+
+def evaluate_all(tasks: list[dict[str, Any]], context: dict[str, Any]) -> list[dict[str, Any]]:
+    """Evaluate every task with the same context."""
+    return [evaluate_task(task, context) for task in tasks]
+
+
+def merge_duplicate_tasks(tasks: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Remove tasks that share a normalised title and deadline (same task, many documents)."""
+
+    def title_key(value: Any) -> str:
+        return "".join(ch.lower() for ch in str(value or "") if ch.isalnum())
+
+    seen: set[tuple[str, str]] = set()
+    merged: list[dict[str, Any]] = []
+    notes: list[str] = []
+    for task in tasks:
+        key = (title_key(task.get("title")), str(task.get("deadline", "")).strip())
+        if key[0] and key in seen:
+            notes.append(f"Merged duplicate task '{task.get('title', '')}'")
+            continue
+        seen.add(key)
+        merged.append(task)
+    return merged, notes
+
+
+def rebalance_schedule(
+    tasks: list[dict[str, Any]],
+    weekly_capacity: int = WEEKLY_CAPACITY_MINUTES,
+    today: date | None = None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Spread tasks across weeks and report how the load was distributed."""
+    weekly_plan = build_weekly_plan(tasks, weekly_capacity, today)
+    first_week: dict[str, int] = {}
+    for week in weekly_plan:
+        for tid in week.get("task_ids", []):
+            first_week.setdefault(str(tid), week["week_index"])
+    deferred_low = [
+        task
+        for task in tasks
+        if _norm_priority(task.get("priority")) == "low"
+        and first_week.get(str(task.get("task_id", "")), 1) >= 2
+    ]
+    notes: list[str] = []
+    if deferred_low:
+        notes.append(
+            f"Spread {len(deferred_low)} low-priority task(s) beyond week 1 to respect the "
+            f"{weekly_capacity} min weekly cap"
+        )
+    used = [week for week in weekly_plan if week["allocated_minutes"] > 0]
+    if len(used) > 1:
+        notes.append(f"Schedule spans {len(used)} weeks")
+    return weekly_plan, notes
+
+
+def run_logic(tasks: list[dict[str, Any]], constraints: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Top-level entry: dedupe + metrics + decisions + timeline-spread weekly plan."""
+    constraints = constraints or {}
+    capacity = _to_float(constraints.get("weekly_capacity_minutes"), WEEKLY_CAPACITY_MINUTES) or WEEKLY_CAPACITY_MINUTES
+    today = constraints.get("today")
+    if not isinstance(today, date):
+        today = date.today()
+    deduped, dedupe_notes = merge_duplicate_tasks(tasks)
+    metrics = compute_metrics(deduped, capacity, today)
+    clash_ids = _clash_task_ids(metrics.get("deadline_clashes", []))
+    context = {
+        "weekly_capacity_minutes": capacity,
+        "current_minutes": metrics.get("peak_weekly_minutes", 0),
+        "burnout_index": metrics.get("burnout_index", 0.0),
+        "clash_task_ids": clash_ids,
+        "today": today,
+    }
+    decisions = evaluate_all(deduped, context)
+    keep = {d["task_id"] for d in decisions if d["decision"] in ("ACCEPT", "FLAG")}
+    kept_tasks = [task for task in deduped if str(task.get("task_id", "")) in keep]
+    weekly_plan, notes = rebalance_schedule(kept_tasks, capacity, today)
+    return {
+        "tasks": deduped,
+        "metrics": metrics,
+        "decisions": decisions,
+        "weekly_plan": weekly_plan,
+        "notes": dedupe_notes + notes,
+    }
+
+
+# --------------------------- plan queries, validation, recalculation ---------------------------
+
+def week_workload_minutes(weekly_plan: list[dict[str, Any]], week_index: int) -> int:
+    """Total planned minutes for a given week (0 if the week is absent)."""
+    for week in weekly_plan or []:
+        if int(week.get("week_index", -1)) == int(week_index):
+            return int(week.get("allocated_minutes", 0))
+    return 0
+
+
+def filter_tasks_by_week(
+    tasks: list[dict[str, Any]],
+    weekly_plan: list[dict[str, Any]],
+    week_index: int,
+) -> list[dict[str, Any]]:
+    """Return the tasks scheduled in ``week_index`` (uses the stored schedule, no regeneration)."""
+    wanted = int(week_index)
+    ids: set[str] = set()
+    for week in weekly_plan or []:
+        if int(week.get("week_index", -1)) != wanted:
+            continue
+        for allocation in week.get("allocations", []):
+            ids.add(str(allocation.get("task_id", "")))
+        for task_id in week.get("task_ids", []):
+            ids.add(str(task_id))
+    return [task for task in tasks or [] if str(task.get("task_id", "")) in ids]
+
+
+def normalize_difficulty(value: Any) -> str | None:
+    """Return the canonical difficulty, or ``None`` if the value is invalid."""
+    text = str(value).strip().lower() if value is not None else ""
+    return text if text in DIFFICULTY_WEIGHTS else None
+
+
+def filter_tasks_by_difficulty(tasks: list[dict[str, Any]], difficulty: Any) -> list[dict[str, Any]]:
+    """Return tasks whose (normalized) difficulty matches; empty list if invalid."""
+    wanted = normalize_difficulty(difficulty)
+    if wanted is None:
+        return []
+    return [task for task in tasks or [] if _norm_difficulty(task.get("difficulty")) == wanted]
+
+
+def task_week_map(weekly_plan: list[dict[str, Any]]) -> dict[str, list[int]]:
+    """Map each task_id to the sorted list of week indices it appears in."""
+    mapping: dict[str, list[int]] = {}
+    for week in weekly_plan or []:
+        index = int(week.get("week_index", 0))
+        for allocation in week.get("allocations", []):
+            task_id = str(allocation.get("task_id", ""))
+            weeks = mapping.setdefault(task_id, [])
+            if index not in weeks:
+                weeks.append(index)
+    for weeks in mapping.values():
+        weeks.sort()
+    return mapping
+
+
+def validate_task_edit(field: Any, value: Any) -> tuple[bool, Any, str | None]:
+    """Validate an editable task field. Returns ``(ok, normalized_value, error)``."""
+    name = str(field or "").strip().lower()
+    if name == "title":
+        text = str(value or "").strip()
+        if not text:
+            return False, None, "title cannot be empty"
+        return True, text, None
+    if name == "difficulty":
+        normalized = normalize_difficulty(value)
+        if normalized is None:
+            return False, None, "difficulty must be easy, medium or hard"
+        return True, normalized, None
+    if name == "estimated_minutes":
+        try:
+            minutes = int(value)
+        except (TypeError, ValueError):
+            return False, None, "estimated minutes must be a whole number"
+        if minutes <= 0:
+            return False, None, "estimated minutes must be greater than 0"
+        return True, minutes, None
+    if name == "deadline":
+        text = str(value or "").strip()
+        if text == "":
+            return True, "", None
+        if parse_date(text) is None:
+            return False, None, "deadline must be YYYY-MM-DD or empty"
+        return True, text, None
+    return False, None, f"field '{field}' is not editable"
+
+
+def recalculate_plan_entry(entry: dict[str, Any], constraints: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Re-run the planning engine over a plan entry's tasks and refresh schedule/metrics/decisions."""
+    tasks = entry.get("tasks", []) if isinstance(entry, dict) else []
+    result = run_logic(tasks, constraints)
+    entry["tasks"] = result.get("tasks", tasks)
+    entry["weekly_plan"] = result.get("weekly_plan", [])
+    entry["metrics"] = result.get("metrics", {})
+    entry["decisions"] = result.get("decisions", [])
+    entry["notes"] = result.get("notes", [])
+    entry["documents"] = sorted({str(task.get("source_document", "UNKNOWN")) for task in entry["tasks"]})
+    return entry
