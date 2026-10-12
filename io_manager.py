@@ -310,3 +310,221 @@ def confirm(prompt: str) -> bool:
         if answer in ("n", "no"):
             return False
         display_line("  ! Please answer y or n.")
+
+#---------------------------Member: Marcus insertion -----------------------------#
+
+def prompt_line(label: str, allow_empty: bool = False) -> str:
+    while True:
+        value = _read(f"{label}: ").strip()
+        if value or allow_empty:
+            return value
+        display_line("  ! Input cannot be empty.")
+
+
+def prompt_float(label: str, minimum: float = 0.0, maximum: float = 1000.0) -> float:
+    while True:
+        raw = _read(f"{label}: ").strip()
+        try:
+            value = float(raw)
+        except ValueError:
+            display_line("  ! Please enter a number.")
+            continue
+        if minimum <= value <= maximum:
+            return value
+        display_line(f"  ! Value must be between {minimum} and {maximum}.")
+
+
+def prompt_int(label: str, minimum: int = 0, maximum: int = 100) -> int:
+    while True:
+        raw = _read(f"{label}: ").strip()
+        try:
+            value = int(raw)
+        except ValueError:
+            display_line("  ! Please enter a whole number.")
+            continue
+        if minimum <= value <= maximum:
+            return value
+        display_line(f"  ! Value must be between {minimum} and {maximum}.")
+
+
+def prompt_date(label: str, fmt: str = "%Y-%m-%d") -> str:
+    while True:
+        raw = _read(f"{label} ({fmt}): ").strip()
+        try:
+            datetime.strptime(raw, fmt)
+            return raw
+        except ValueError:
+            display_line(f"  ! Invalid date, expected {fmt}.")
+
+
+def prompt_choice(label: str, choices: list[str]) -> str:
+    display_line(f"{label} [{'/'.join(choices)}]")
+    lowered = [choice.lower() for choice in choices]
+    while True:
+        raw = _read("> ").strip().lower()
+        if raw in lowered:
+            return raw
+        display_line("  ! Choose one of: " + ", ".join(choices))
+
+
+def prompt_yes_no(label: str) -> bool:
+    return confirm(label)
+
+
+def extract_pdf_text(path: str) -> tuple[str | None, str | None]:
+    """Extract text from a PDF using pypdf. Returns ``(text, error)``. Never raises."""
+    if not path:
+        return None, "no path provided"
+    if not os.path.exists(path):
+        return None, f"file not found: {path}"
+    try:
+        from pypdf import PdfReader  # lazy import keeps non-PDF use dependency-free
+    except ImportError:
+        return None, "PDF support requires the 'pypdf' package (pip install pypdf)"
+    _attach_pypdf_log_filter()
+    try:
+        reader = PdfReader(path)
+    except Exception as exc:  # malformed / unreadable PDF
+        return None, f"could not open PDF {path}: {exc}"
+    if getattr(reader, "is_encrypted", False):
+        try:
+            reader.decrypt("")
+        except Exception:
+            return None, f"{path}: PDF is encrypted and could not be opened"
+        if getattr(reader, "is_encrypted", False):
+            return None, f"{path}: PDF is encrypted and requires a password"
+    try:
+        parts = []
+        for page in reader.pages:
+            parts.append(page.extract_text() or "")
+        joined = "\n".join(parts).strip()
+    except Exception as exc:  # extraction failure on a page
+        return None, f"could not extract text from {path}: {exc}"
+    if not joined:
+        return None, f"{path}: no extractable text (image-only PDF? OCR is not supported)"
+    return joined, None
+
+
+def read_syllabus_file(path: str) -> tuple[str | None, str | None]:
+    """Read a document as text (.pdf is extracted, others read as UTF-8). Returns ``(text, error)``."""
+    if not path:
+        return None, "no path provided"
+    if not os.path.exists(path):
+        return None, f"file not found: {path}"
+    if path.lower().endswith(".pdf"):
+        return extract_pdf_text(path)
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return handle.read(), None
+    except UnicodeDecodeError:
+        return None, f"{path}: not UTF-8 text (binary file?)"
+    except OSError as exc:
+        return None, f"could not read {path}: {exc}"
+
+
+def discover_syllabi(inputs_dir: str = "inputs") -> list[str]:
+    """Return candidate document files inside ``inputs_dir``."""
+    if not inputs_dir or not os.path.isdir(inputs_dir):
+        return []
+    found = []
+    for name in sorted(os.listdir(inputs_dir)):
+        if name.lower().endswith((".json", ".txt", ".md", ".pdf")):
+            found.append(os.path.join(inputs_dir, name))
+    return found
+
+
+def _is_valid_date(value: str, fmt: str = "%Y-%m-%d") -> bool:
+    try:
+        datetime.strptime(value, fmt)
+        return True
+    except ValueError:
+        return False
+
+
+def ingest_interactive_tasks(source_name: str) -> list[dict]:
+    """Prompt the user for study tasks until they leave the title blank."""
+    display_line(f"Entering tasks for {source_name}. Leave the title blank to finish.")
+    tasks: list[dict] = []
+    counter = 1
+    while True:
+        title = prompt_line("Task title (blank to finish)", allow_empty=True)
+        if not title:
+            break
+        description = prompt_line("Description", allow_empty=True)
+        category = prompt_choice(
+            "Category",
+            ["assignment", "exam", "tutorial", "lab", "project", "reading", "revision", "other"],
+        )
+        deadline = prompt_line("Deadline YYYY-MM-DD (blank = none)", allow_empty=True)
+        while deadline and not _is_valid_date(deadline):
+            display_line("  ! Invalid date, expected YYYY-MM-DD.")
+            deadline = prompt_line("Deadline YYYY-MM-DD (blank = none)", allow_empty=True)
+        minutes = prompt_int("Estimated minutes", 0, 100000)
+        difficulty = prompt_choice("Difficulty", ["easy", "medium", "hard"])
+        priority = prompt_choice("Priority", ["low", "medium", "high"])
+        tasks.append({
+            "task_id": f"manual-{counter}",
+            "title": title,
+            "description": description,
+            "category": category,
+            "deadline": deadline,
+            "estimated_minutes": minutes,
+            "difficulty": difficulty,
+            "priority": priority,
+            "dependencies": [],
+            "source_document": source_name,
+            "source_type": "manual",
+            "confidence": 1.0,
+        })
+        counter += 1
+    return tasks
+
+
+def render_document_index(paths: list[str]) -> str:
+    """Render a numbered list of selectable documents (basename shown)."""
+    lines: list[str] = []
+    for index, path in enumerate(paths):
+        lines.append(f"{index + 1}. {os.path.basename(path)}")
+    lines.append("")
+    lines.append("Tip: enter numbers like 1,3 or a range like 1-3; type 'all' or leave blank for every document; 0 cancels.")
+    return "\n".join(lines)
+
+
+def prompt_indices(label: str, count: int) -> list[int]:
+    """Prompt for one or more selections in ``1..count``.
+
+    Accepts comma/space separated numbers and ranges (e.g. ``1-3``);
+    ``all`` (or blank) selects everything; ``0`` cancels. Returns a sorted,
+    de-duplicated list of 1-based indices (empty list when cancelled).
+    """
+    while True:
+        raw = _read(f"{label}: ").strip().lower()
+        if raw in ("", "all", "a"):
+            return list(range(1, count + 1))
+        if raw == "0":
+            return []
+        picked: set[int] = set()
+        valid = True
+        for token in raw.replace(",", " ").split():
+            if "-" in token:
+                low_text, _, high_text = token.partition("-")
+                if not (low_text.isdigit() and high_text.isdigit()):
+                    valid = False
+                    break
+                low, high = int(low_text), int(high_text)
+                if low < 1 or high > count or low > high:
+                    valid = False
+                    break
+                picked.update(range(low, high + 1))
+            elif token.isdigit():
+                value = int(token)
+                if value < 1 or value > count:
+                    valid = False
+                    break
+                picked.add(value)
+            else:
+                valid = False
+                break
+        if valid and picked:
+            return sorted(picked)
+        display_line(f"  ! Enter numbers between 1 and {count}, a range like 1-3, or 'all'.")
