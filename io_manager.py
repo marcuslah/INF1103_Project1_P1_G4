@@ -1,6 +1,6 @@
 """io_manager.py — The ONLY module permitted to call print() / input().
 
-Owners: Member 1 (Ingestion) & Member 2 (Display).
+Owners: Member 1:Marcus (Ingestion) & Member 2:Khant (Display).
 Style: 100% procedural -- no ``class`` keyword anywhere.
 """
 
@@ -74,7 +74,7 @@ def _read(label: str) -> str:
         raise SystemExit(0)
 
 
-# --------------------------- Member 2: display ---------------------------
+# --------------------------- Member:Khant and Marcus - Display ---------------------------
 
 def display_line(text: str = "") -> None:
     print(text)
@@ -204,7 +204,7 @@ def show_main_menu() -> str:
     divider = "=" * 40
     display_line("")
     display_line(divider)
-    display_line("        AI STUDY PLANNER")
+    display_line("        StudyPilot (AI STUDY PLANNER)")
     display_line(divider)
     for key, label in MAIN_MENU_OPTIONS:
         display_line(f"{key}. {label}")
