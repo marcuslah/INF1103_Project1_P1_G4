@@ -1,7 +1,9 @@
 """io_manager.py — The ONLY module permitted to call print() / input().
 
-Owners: Member 1:Marcus (Ingestion) & Member 2:Khant (Display).
-Style: 100% procedural -- no ``class`` keyword anywhere.
+35 functions for displaying text and prompting the user, plus PDF ingestion.
+
+Member 1:Marcus (Ingestion) & Member 2:Khant (Display).
+
 """
 
 from __future__ import annotations
@@ -14,7 +16,8 @@ from datetime import datetime
 _PYPDF_NOISE_TEXT = "Ignoring wrong pointing object"
 _pypdf_log_filter_attached = False
 
-
+# Filter a known harmless pypdf warning so users only see useful messages.
+# Keep other PDF warnings available for troubleshooting.
 def _attach_pypdf_log_filter() -> None:
     """Drop ONLY pypdf's benign 'Ignoring wrong pointing object' log records.
 
@@ -24,7 +27,9 @@ def _attach_pypdf_log_filter() -> None:
     global _pypdf_log_filter_attached
     if _pypdf_log_filter_attached:
         return
-
+    
+# Check a PDF log message and hide only the known harmless warning.
+# Keep the record if its text cannot be read.
     def _keep(record: "logging.LogRecord") -> bool:
         try:
             return _PYPDF_NOISE_TEXT not in record.getMessage()
@@ -57,14 +62,16 @@ PLAN_MENU_OPTIONS: tuple[tuple[str, str], ...] = (
 
 BANNER_WIDTH: int = 60
 
-
+# Convert a value to a decimal number for displaying workload totals.
+# Use the default if the input cannot be converted.
 def _to_float(value, default: float = 0.0) -> float:
     try:
         return float(value)
     except (TypeError, ValueError):
         return default
 
-
+# Collect one line of terminal input from the user.
+# Exit cleanly when no input stream is available.
 def _read(label: str) -> str:
     """Thin wrapper over input() that exits cleanly on EOF (non-interactive)."""
     try:
@@ -76,10 +83,13 @@ def _read(label: str) -> str:
 
 # --------------------------- Member:Khant and Marcus - Display ---------------------------
 
+# Display a line of text in the terminal.
+# This keeps printing inside the IO Manager.
 def display_line(text: str = "") -> None:
     print(text)
 
-
+# Display a formatted status message such as SUCCESS or ERROR.
+# Normalise unknown status labels to INFO.
 def banner(level: str, message: str) -> None:
     tag = str(level).strip().upper()
     if tag not in ("INFO", "WARN", "ERROR", "SUCCESS"):
@@ -89,7 +99,8 @@ def banner(level: str, message: str) -> None:
     print(f"[{tag}] {message}")
     print(divider)
 
-
+# Build a readable text table with column widths and borders.
+# Return the formatted string rather than printing it here.
 def render_table(headers: list[str], rows: list[list[str]], max_col_width: int = 30) -> str:
     """Render a plain-ASCII table as a string (caller decides how to display)."""
     header_cells = [str(h) for h in headers]
@@ -108,11 +119,13 @@ def render_table(headers: list[str], rows: list[list[str]], max_col_width: int =
             width = max(width, len(row[index]))
         widths.append(min(width, max_col_width))
 
+    # Shorten long cell text so it fits the chosen table column width.
     def clip(text: str) -> str:
         if len(text) <= max_col_width:
             return text
         return text[: max(0, max_col_width - 3)] + "..."
-
+    
+    # Pad and align each cell, then combine cells into one table row.
     def render_row(cells: list[str]) -> str:
         padded = []
         for index, cell in enumerate(cells):
@@ -126,7 +139,8 @@ def render_table(headers: list[str], rows: list[list[str]], max_col_width: int =
     lines.append(border)
     return "\n".join(lines)
 
-
+# Extract task details and present them in a consistent table.
+# Reuse render_table to avoid repeating formatting logic.
 def render_task_table(tasks: list[dict]) -> str:
     rows = []
     for task in tasks:
@@ -145,7 +159,7 @@ def render_task_table(tasks: list[dict]) -> str:
         rows,
     )
 
-
+# Display each scheduled week with its dates, workload and task IDs.
 def render_weekly_table(weekly_plan: list[dict]) -> str:
     rows = []
     for week in weekly_plan:
@@ -158,7 +172,7 @@ def render_weekly_table(weekly_plan: list[dict]) -> str:
         ])
     return render_table(["Week", "Start", "End", "Est. (min)", "Tasks"], rows)
 
-
+# Turn workload and burnout measurements into a readable summary table.
 def render_metrics(metrics: dict) -> str:
     rows = [
         ["Tasks", metrics.get("task_count", 0)],
@@ -171,7 +185,7 @@ def render_metrics(metrics: dict) -> str:
     ]
     return render_table(["metric", "value"], rows)
 
-
+# Show the rule, outcome and reason for each Logic Manager decision.
 def render_decisions(decisions: list[dict]) -> str:
     rows = []
     for decision in decisions:
@@ -183,7 +197,7 @@ def render_decisions(decisions: list[dict]) -> str:
         ])
     return render_table(["task_id", "decision", "rule", "reason"], rows)
 
-
+# Summarise a saved plan using its course list, workload metrics and notes.
 def render_summary(plan_entry: dict) -> str:
     metrics = plan_entry.get("metrics", {})
     courses = ", ".join(plan_entry.get("courses", [])) or "(none)"
@@ -199,7 +213,8 @@ def render_summary(plan_entry: dict) -> str:
         lines.append(f"- {note}")
     return "\n".join(lines)
 
-
+# Display the main StudyPilot options and return the user’s selection.
+# Leave the actual menu action to main.py.
 def show_main_menu() -> str:
     divider = "=" * 40
     display_line("")
@@ -211,7 +226,7 @@ def show_main_menu() -> str:
     display_line("")
     return _read("Select an option: ").strip().lower()
 
-
+# Display actions available for one saved plan and read the selection.
 def show_plan_menu(plan_id: str) -> str:
     display_line("")
     display_line("========== PLAN ==========")
@@ -221,7 +236,8 @@ def show_plan_menu(plan_id: str) -> str:
     display_line("")
     return _read("Select an option: ").strip().lower()
 
-
+# List saved plans with task counts, document counts and workload totals.
+# Number entries so users can choose one.
 def render_plans_index(entries: list[dict]) -> str:
     """Render the numbered list of saved plans with headline counts/workload."""
     lines: list[str] = []
@@ -238,7 +254,7 @@ def render_plans_index(entries: list[dict]) -> str:
     lines.append("0. Back")
     return "\n".join(lines)
 
-
+# Show tasks assigned to a selected week and its total allocated time.
 def render_week_view(week_index: int, week: dict, tasks: list[dict]) -> str:
     """Render the tasks scheduled in a given week plus that week's total workload."""
     lines = [f"========== WEEK {week_index} ==========", ""]
@@ -256,7 +272,8 @@ def render_week_view(week_index: int, week: dict, tasks: list[dict]) -> str:
     lines.append(f"Total workload: {round(minutes / 60.0, 1)} hours")
     return "\n".join(lines)
 
-
+# List tasks matching a difficulty and show their scheduled weeks.
+# Add their estimated minutes to calculate total workload.
 def render_difficulty_view(difficulty: str, tasks: list[dict], weeks_by_task: dict) -> str:
     """Render all tasks of a given difficulty with their week(s) and workload total."""
     lines = [f"========== DIFFICULTY: {str(difficulty).upper()} ==========", ""]
@@ -274,7 +291,7 @@ def render_difficulty_view(difficulty: str, tasks: list[dict], weeks_by_task: di
     lines.append(f"Total workload: {round(total_minutes / 60.0, 1)} hours")
     return "\n".join(lines)
 
-
+# Display numbered task choices for edit or delete operations.
 def render_task_index(tasks: list[dict]) -> str:
     """Render a numbered list of tasks for selection."""
     lines: list[str] = []
@@ -286,7 +303,8 @@ def render_task_index(tasks: list[dict]) -> str:
     lines.append("0. Back")
     return "\n".join(lines)
 
-
+# Keep asking until the user enters a number within the allowed range.
+# Optionally allow zero as a back or cancel selection.
 def prompt_index(label: str, count: int, allow_zero: bool = True) -> int:
     """Prompt for a selection in ``low..count`` (``0..count`` when allow_zero). Returns the int."""
     low = 0 if allow_zero else 1
@@ -301,7 +319,8 @@ def prompt_index(label: str, count: int, allow_zero: bool = True) -> int:
             return value
         display_line(f"  ! Enter a number between {low} and {count}.")
 
-
+# Ask for yes or no confirmation and return a Boolean result.
+# Reject other responses rather than guessing the intent.
 def confirm(prompt: str) -> bool:
     while True:
         answer = _read(f"{prompt} [y/n]: ").strip().lower()
@@ -313,6 +332,7 @@ def confirm(prompt: str) -> bool:
 
 #---------------------------Member: Marcus insertion -----------------------------#
 
+# Read and trim a text answer, repeating the prompt if blanks are forbidden.
 def prompt_line(label: str, allow_empty: bool = False) -> str:
     while True:
         value = _read(f"{label}: ").strip()
@@ -321,6 +341,7 @@ def prompt_line(label: str, allow_empty: bool = False) -> str:
         display_line("  ! Input cannot be empty.")
 
 
+# Request a decimal number and check it falls between given limits.
 def prompt_float(label: str, minimum: float = 0.0, maximum: float = 1000.0) -> float:
     while True:
         raw = _read(f"{label}: ").strip()
@@ -334,6 +355,7 @@ def prompt_float(label: str, minimum: float = 0.0, maximum: float = 1000.0) -> f
         display_line(f"  ! Value must be between {minimum} and {maximum}.")
 
 
+# Request a whole number and reject non-integers or out-of-range values.
 def prompt_int(label: str, minimum: int = 0, maximum: int = 100) -> int:
     while True:
         raw = _read(f"{label}: ").strip()
@@ -346,7 +368,8 @@ def prompt_int(label: str, minimum: int = 0, maximum: int = 100) -> int:
             return value
         display_line(f"  ! Value must be between {minimum} and {maximum}.")
 
-
+# Ask for a date and use datetime to check the requested format.
+# Repeat until the user provides a valid calendar date.
 def prompt_date(label: str, fmt: str = "%Y-%m-%d") -> str:
     while True:
         raw = _read(f"{label} ({fmt}): ").strip()
@@ -356,7 +379,8 @@ def prompt_date(label: str, fmt: str = "%Y-%m-%d") -> str:
         except ValueError:
             display_line(f"  ! Invalid date, expected {fmt}.")
 
-
+# Limit user input to one of the available choices.
+# Compare without case sensitivity.
 def prompt_choice(label: str, choices: list[str]) -> str:
     display_line(f"{label} [{'/'.join(choices)}]")
     lowered = [choice.lower() for choice in choices]
@@ -366,11 +390,12 @@ def prompt_choice(label: str, choices: list[str]) -> str:
             return raw
         display_line("  ! Choose one of: " + ", ".join(choices))
 
-
+# Reuse the shared confirmation function for a yes/no question.
 def prompt_yes_no(label: str) -> bool:
     return confirm(label)
 
-
+# Read text from PDF pages using pypdf and join it into one string.
+# Return an error message for unreadable, protected or image-only PDFs.
 def extract_pdf_text(path: str) -> tuple[str | None, str | None]:
     """Extract text from a PDF using pypdf. Returns ``(text, error)``. Never raises."""
     if not path:
@@ -404,7 +429,8 @@ def extract_pdf_text(path: str) -> tuple[str | None, str | None]:
         return None, f"{path}: no extractable text (image-only PDF? OCR is not supported)"
     return joined, None
 
-
+# Choose how to read a syllabus based on its file type.
+# Use PDF extraction for PDFs and UTF-8 reading for other files.
 def read_syllabus_file(path: str) -> tuple[str | None, str | None]:
     """Read a document as text (.pdf is extracted, others read as UTF-8). Returns ``(text, error)``."""
     if not path:
@@ -421,7 +447,8 @@ def read_syllabus_file(path: str) -> tuple[str | None, str | None]:
     except OSError as exc:
         return None, f"could not read {path}: {exc}"
 
-
+# Find supported study documents in the specified input folder.
+# Return file paths in a predictable sorted order.
 def discover_syllabi(inputs_dir: str = "inputs") -> list[str]:
     """Return candidate document files inside ``inputs_dir``."""
     if not inputs_dir or not os.path.isdir(inputs_dir):
@@ -432,7 +459,7 @@ def discover_syllabi(inputs_dir: str = "inputs") -> list[str]:
             found.append(os.path.join(inputs_dir, name))
     return found
 
-
+# Check whether a date string matches the expected calendar format.
 def _is_valid_date(value: str, fmt: str = "%Y-%m-%d") -> bool:
     try:
         datetime.strptime(value, fmt)
@@ -440,7 +467,8 @@ def _is_valid_date(value: str, fmt: str = "%Y-%m-%d") -> bool:
     except ValueError:
         return False
 
-
+# Collect study tasks one at a time from terminal prompts.
+# Validate each response and store the tasks as dictionaries.
 def ingest_interactive_tasks(source_name: str) -> list[dict]:
     """Prompt the user for study tasks until they leave the title blank."""
     display_line(f"Entering tasks for {source_name}. Leave the title blank to finish.")
@@ -479,7 +507,8 @@ def ingest_interactive_tasks(source_name: str) -> list[dict]:
         counter += 1
     return tasks
 
-
+# Show available document filenames as numbered choices.
+# Include instructions for selecting multiple documents.
 def render_document_index(paths: list[str]) -> str:
     """Render a numbered list of selectable documents (basename shown)."""
     lines: list[str] = []
@@ -489,7 +518,8 @@ def render_document_index(paths: list[str]) -> str:
     lines.append("Tip: enter numbers like 1,3 or a range like 1-3; type 'all' or leave blank for every document; 0 cancels.")
     return "\n".join(lines)
 
-
+# Accept one or more document choices, including ranges and all.
+# Reject invalid selections and return unique sorted indices.
 def prompt_indices(label: str, count: int) -> list[int]:
     """Prompt for one or more selections in ``1..count``.
 
