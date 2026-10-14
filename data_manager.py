@@ -1,8 +1,4 @@
 """data_manager.py — Flat-file JSON persistence with corruption resilience.
-
-Owner: Member 6 (Data & DevOps Lead).
-Style: 100% procedural -- no ``class`` keyword anywhere.
-Boundary: no console output or keyboard input belongs here (see io_manager.py).
 """
 
 from __future__ import annotations
