@@ -1,4 +1,4 @@
-# AI Academic Workload Planner
+# StudyPilot AI Academic Workload Planner
 
 An AI-powered academic workload planner that extracts study tasks from syllabus and course documents, estimates workload, applies planning logic, and saves a weekly study plan.
 
