@@ -76,7 +76,7 @@ docker run --rm -it `
   -v "${PWD}/inputs:/app/inputs" `
   -v "${PWD}/data:/app/data" `
   --env-file .env `
-  workload-planner
+  workload-planner --interactive
 ```
 
 OR
