@@ -1,77 +1,70 @@
 # StudyPilot AI Academic Workload Planner
 
-An AI-powered academic workload planner that extracts study tasks from syllabus and course documents, estimates workload, applies planning logic, and saves a weekly study plan.
+An AI-powered academic workload planner that extracts study tasks from
+syllabus and course documents, estimates workload, applies planning
+logic, and saves a weekly study plan.
 
-**Repository:** `INF1103 AI Academic Workload Planner`
+------------------------------------------------------------------------
 
----
+## Quick Start --- Docker
 
-## Quick Start — Docker
+Docker is the recommended way to run the project because it provides the
+required Python environment and dependencies inside a container.
 
-Docker is the recommended way to run the project because it provides the required Python environment and dependencies inside the container.
+### 1. Clone the repository
 
-### 1. Download or clone the repository
+Open PowerShell or a terminal and clone the **main submission
+repository**:
 
-Open **Command Prompt (CMD)** or **PowerShell** and clone or download the repository to your computer.
-After downloading or cloning, open a terminal in the **project root directory** — the folder containing the `Dockerfile`, `requirements.txt`, and `main.py`.
-```
-git clone https://github.com/Shixy403/INF1103-AIStudy-reference.git
-cd INF1103-AIStudy-reference
-```
-To verify, run
-```
-dir
+``` powershell
+git clone https://github.com/marcuslah/INF1103_Project1_P1_G4.git
+cd INF1103_Project1_P1_G4
 ```
 
-### 2. Make sure Docker is installed
+Run `dir` in PowerShell (or `ls` in macOS/Linux) to check that you are
+in the project root containing `Dockerfile`, `requirements.txt`, and
+`main.py`.
 
-Install and start Docker Desktop before continuing.
+### 2. Install and start Docker
+
+Install Docker Desktop and make sure it is running before continuing.
 
 ### 3. Create your `.env` file
 
-Copy `.env.example` and rename file to:
+Copy `.env.example` and name the copy `.env`. Add your OpenRouter API
+key:
 
-```text
-.env
-```
-
-Add your OpenRouter API key:
-
-```env
+``` env
 OPENROUTER_API_KEY=your_openrouter_api_key_here
 ```
 
-**Never commit or share your `.env` file.** It contains your private API key and is excluded from Git.
+**Never commit or share `.env`.** It contains your private API key. Keep
+the actual key out of source code and Git.
 
 ### 4. Add your documents
 
-Place your academic documents inside:
+Place academic documents in the `inputs/` folder.
 
-```text
-inputs/
-```
+Supported formats:
 
-Supported formats are:
-
-- PDF
-- TXT
-- MD
-- JSON
+-   PDF
+-   TXT
+-   MD
+-   JSON
 
 ### 5. Build the Docker image
 
-Run this command from the project root:
+Run this from the project root:
 
-```bash
+``` powershell
 docker build -t workload-planner .
 ```
 
 ### 6. Run the planner
 
-Either
+#### Option A --- Interactive mode (recommended when choosing documents)
 
-1. To select Individual / Multiple documents through CLI Interactive
-```
+``` powershell
 docker run --rm -it `
   -v "${PWD}/inputs:/app/inputs" `
   -v "${PWD}/data:/app/data" `
@@ -79,303 +72,272 @@ docker run --rm -it `
   workload-planner --interactive
 ```
 
-OR
+The interactive menu lets you manage saved plans and choose which
+documents to process when creating a new plan.
 
-2. To Automatically process the supported documents in the `inputs/` folder:
+#### Option B --- Process all supported documents in `inputs/`
 
-```bash
-docker run --rm -v "${PWD}/inputs:/app/inputs" --env-file .env workload-planner --inputs inputs/
+``` powershell
+docker run --rm `
+  -v "${PWD}/inputs:/app/inputs" `
+  -v "${PWD}/data:/app/data" `
+  --env-file .env `
+  workload-planner --inputs inputs/
 ```
 
-The planner will extract tasks, calculate workload information, and generate a saved study plan.
+This processes supported documents found in `inputs/` without asking you
+to select them individually.
 
----
+The `inputs/` mount gives the container access to your documents. The
+`data/` mount keeps saved plans on your computer after the container
+exits.
+
+> These multiline commands use PowerShell syntax. In Windows Command
+> Prompt (CMD), use `^` for line continuation instead of the PowerShell
+> backtick.
+
+------------------------------------------------------------------------
 
 ## Interactive Mode
 
-The interactive menu is the recommended way to create a plan when you want to choose which documents to process.
+Interactive mode is useful when you want to choose specific documents or
+manage saved plans.
 
-Run:
+### With Docker
 
-```bash
-docker run --rm -it -v "${PWD}/inputs:/app/inputs" -v "${PWD}/data:/app/data" --env-file .env workload-planner
+``` powershell
+docker run --rm -it `
+  -v "${PWD}/inputs:/app/inputs" `
+  -v "${PWD}/data:/app/data" `
+  --env-file .env `
+  workload-planner --interactive
 ```
 
-You will see:
+### With Python
 
-```text
-========================================
-        AI STUDY PLANNER
-========================================
-1. View saved plans
-2. Delete a plan
-3. Search tasks by week
-4. Search tasks by difficulty
-5. Create new plan
-6. Exit
+After installing the dependencies (see [Run directly with
+Python](#run-directly-with-python)), run:
+
+``` bash
+python main.py --interactive
 ```
 
-Select:
+The menu lets you view saved plans, delete a plan, search tasks by week
+or difficulty, create a new plan, and exit.
 
-```text
-5. Create new plan
-```
+When creating a plan, choose the document-selection option. The
+available documents are shown as a numbered list. Depending on the
+prompt, you can select:
 
-Then:
+-   One document, such as `1`
+-   Multiple documents, such as `1,3`
+-   A range, such as `1-3`
+-   All documents, using `all`
+-   Cancel selection, using `0`
+-   Press Enter to use all documents, if the prompt offers that default
 
-```text
-1. Select documents from inputs/
-```
+Only selected documents are processed. The original files in `inputs/`
+are not modified.
 
-The planner displays the available documents as a numbered list.
-
-You can select:
-
-- Individual documents: `1`
-- Multiple documents: `1,3`
-- A range: `1-3`
-- All documents: `all`
-- Cancel document selection: `0`
-- Press Enter to use all documents
-
-Only the selected documents are processed. The original files in `inputs/` are not modified.
-
----
+------------------------------------------------------------------------
 
 ## The Idea
 
-University students often receive academic information across multiple documents such as:
+University students receive academic information across multiple
+documents, such as syllabuses, lecture notes, lab instructions, tutorial
+sheets, and weekly schedules. Manually turning these documents into a
+structured study plan can be time-consuming.
 
-- Module information
-- Syllabuses
-- Lecture notes
-- Lab instructions
-- Tutorial sheets
-- Weekly schedules
+The planner is designed to:
 
-Manually converting these documents into a structured study plan can be time-consuming.
+1.  Read academic documents.
+2.  Extract study tasks using an AI model when AI extraction is
+    required.
+3.  Normalize tasks into a structured format.
+4.  Calculate workload and risk metrics.
+5.  Apply planning and scheduling logic.
+6.  Save the resulting study plan.
+7.  Let users search, edit, and manage saved plans.
 
-The AI Academic Workload Planner automates this process.
+**Note:** Not every input necessarily requires an API call. For example,
+a valid JSON input that already contains a top-level `tasks` list can be
+normalized directly without AI extraction.
 
-The system:
-
-1. Reads academic documents.
-2. Extracts study tasks using an AI model.
-3. Structures the extracted tasks.
-4. Calculates workload information.
-5. Applies planning and scheduling logic.
-6. Saves the resulting study plan.
-7. Allows users to search, edit, and manage saved plans.
-
----
+------------------------------------------------------------------------
 
 ## Architecture
 
-The project uses a procedural architecture with separate managers for each responsibility.
+The project uses a procedural architecture with separate managers for
+different responsibilities. `main.py` coordinates the application; the
+managers are not a strict one-way pipeline because the exact path
+depends on the input and operation.
 
-```text
-                    main.py
-                       |
-        +--------------+--------------+
-        |              |              |
-   io_manager.py  ai_manager.py  logic_manager.py
-                                      |
-                               data_manager.py
+``` text
+                         main.py
+                    (orchestrates flow)
+                            |
+             +--------------+--------------+
+             |              |              |
+        io_manager.py  ai_manager.py  logic_manager.py
+             |              ^              |
+             +---- data_manager.py --------+
+                    (persistent data)
 ```
 
 ### `main.py`
 
-Controls the application flow and connects the different managers.
+Coordinates the application flow and calls the relevant managers.
 
 ### `io_manager.py`
 
 Handles:
 
-- User input
-- CLI output
-- File discovery
-- Document selection
-- Input validation
-- Display formatting
+-   User input and CLI output
+-   File discovery and document selection
+-   Reading supported input files
+-   Input validation and display formatting
 
 `print()` and `input()` are kept inside this module.
 
 ### `ai_manager.py`
 
-Handles communication with the AI service.
+Handles AI extraction and response processing when required, including:
 
-Responsibilities include:
-
-- Sending document content to OpenRouter
-- Using the configured DeepSeek model
-- Parsing AI responses
-- Sanitising JSON responses
-- Handling AI/API failures
+-   Sending extracted document text to OpenRouter
+-   Using the configured DeepSeek model
+-   Parsing and sanitizing AI responses
+-   Normalizing task records
+-   Handling AI/API failures
 
 ### `logic_manager.py`
 
-Handles the planning logic.
+Handles deterministic planning logic, including:
 
-Responsibilities include:
-
-- Task validation
-- Duplicate detection
-- Workload calculations
-- Difficulty handling
-- Deadline handling
-- Scheduling decisions
-- Plan recalculation
+-   Duplicate-task detection
+-   Workload and risk calculations
+-   Task decisions using rules R1--R7
+-   Deadline and capacity considerations
+-   Weekly scheduling and rebalancing
+-   Task-edit validation and plan recalculation
 
 ### `data_manager.py`
 
-Handles persistent storage.
+Handles persistent data operations, including:
 
-Responsibilities include:
+-   Parsing JSON safely
+-   Loading and saving plans
+-   Updating and deleting plans
+-   Backup and recovery for corrupted JSON
+-   Supporting data migration
 
-- Saving plans
-- Loading plans
-- Updating plans
-- Deleting plans
-- Creating backups
-- Recovering from corrupted JSON
-- Supporting data migration
-
----
+------------------------------------------------------------------------
 
 ## Requirements
 
 ### Recommended
 
-- Docker Desktop
-- OpenRouter API key
+-   Docker Desktop
+-   An OpenRouter API key for AI extraction
 
-### Alternative: Run Directly with Python
+### Run directly with Python
 
-The project can also be run without Docker.
+You can also run the project without Docker.
 
 Requirements:
 
-- Python 3.x
-- An OpenRouter API key
+-   Python version compatible with the dependencies in
+    `requirements.txt`
+-   An OpenRouter API key for workflows that require AI extraction
 
-Install the dependencies from the project root:
+Install dependencies from the project root:
 
-```bash
-pip install -r requirements.txt
+``` bash
+python -m pip install -r requirements.txt
 ```
 
-Then run:
+Start interactive mode:
 
-```bash
-python main.py
+``` bash
+python main.py --interactive
 ```
 
-Docker is recommended for normal use because it provides a consistent environment.
+Process all supported documents in the input folder:
 
----
-
-## Usage
-
-### Interactive Mode
-
-Start the interactive menu:
-
-```bash
-python main.py
-```
-
-Then select:
-
-```text
-5. Create new plan
-```
-
-and:
-
-```text
-1. Select documents from inputs/
-```
-
-The interactive mode allows users to choose which documents should be included in a new plan.
-
----
-
-### Process the `inputs/` Folder
-
-To process the supported documents found in the entire `inputs/` folder:
-
-```bash
+``` bash
 python main.py --inputs inputs/
 ```
 
-This processes the supported documents found in `inputs/`.
+Process one or more individual documents:
 
----
-
-### Process Individual Documents
-
-A specific document can be supplied using `--file`:
-
-```bash
+``` bash
 python main.py --file "inputs/lecture_notes.pdf"
 ```
 
-Multiple documents can also be supplied:
-
-```bash
+``` bash
 python main.py --file "inputs/lecture_notes.pdf" --file "inputs/tutorial.txt"
 ```
 
-**Important:** `--file` expects a document file, not a folder.
+**Important:** `--file` expects a document file, not a folder. This is
+invalid:
 
-This is invalid:
-
-```bash
+``` bash
 python main.py --file inputs/
 ```
 
-Use `--inputs inputs/` when processing a folder.
+Use `--inputs inputs/` to process a folder.
 
----
+------------------------------------------------------------------------
 
 ## Supported Input Types
 
-The planner supports:
+  -----------------------------------------------------------------------
+  Format                  Extension               Notes
+  ----------------------- ----------------------- -----------------------
+  PDF                     `.pdf`                  Text is extracted
+                                                  locally using `pypdf`.
+                                                  Image-only scanned PDFs
+                                                  need OCR, which is not
+                                                  currently included.
 
-| Format | Extension |
-|---|---|
-| PDF | `.pdf` |
-| Text | `.txt` |
-| Markdown | `.md` |
-| JSON | `.json` |
+  Text                    `.txt`                  Plain text
 
-Documents should be placed inside the `inputs/` directory when using the interactive or folder-based workflow.
+  Markdown                `.md`                   Markdown text
 
----
+  JSON                    `.json`                 Structured input can
+                                                  bypass AI extraction
+                                                  when it contains a
+                                                  valid top-level `tasks`
+                                                  list.
+  -----------------------------------------------------------------------
+
+Place documents in `inputs/` for interactive or folder-based workflows.
+
+------------------------------------------------------------------------
 
 ## AI Model
 
-The project uses OpenRouter to access the DeepSeek model:
+The project accesses the configured DeepSeek model through OpenRouter:
 
-```text
+``` text
 deepseek/deepseek-v4-flash
 ```
 
-The API key is provided through the `.env` file:
+Provide the API key through `.env`:
 
-```env
+``` env
 OPENROUTER_API_KEY=your_openrouter_api_key_here
 ```
 
-The API key should never be committed to GitHub or included directly in source code.
+Never commit an actual API key to GitHub or hard-code it in source code.
+The `.env.example` file should contain only a placeholder.
 
----
+------------------------------------------------------------------------
 
 ## Study Task Schema
 
-Extracted study tasks are represented using structured fields such as:
+A task is represented using structured fields. A simplified example is:
 
-```json
+``` json
 {
   "title": "Complete Week 3 Lab",
   "difficulty": "medium",
@@ -384,103 +346,78 @@ Extracted study tasks are represented using structured fields such as:
 }
 ```
 
-The planner uses these fields to calculate workload and construct the study plan.
+The planner can also use fields such as `task_id`, `description`,
+`category`, `priority`, `dependencies`, `source_document`,
+`source_type`, and `confidence`, depending on the input and
+normalization process.
 
----
+For structured JSON input, the outer object should contain a top-level
+`tasks` list, for example:
+
+``` json
+{
+  "source_document": "example.json",
+  "tasks": [
+    {
+      "title": "Complete Week 3 Lab",
+      "difficulty": "medium",
+      "estimated_minutes": 90,
+      "deadline": "2026-10-10"
+    }
+  ]
+}
+```
+
+Valid JSON syntax alone does not guarantee that every task has all the
+expected fields; the application normalizes task records.
+
+------------------------------------------------------------------------
 
 ## Persistence
 
 Generated plans are stored in:
 
-```text
+``` text
 data/study_plans.json
 ```
 
-The application also supports backup and recovery mechanisms for the saved data.
+The application includes backup and recovery mechanisms for saved data.
 
-The `data/` directory is used for persistent application data and should be mounted when running the Docker container if plans need to remain available after the container exits.
+When running with Docker, mount `data/` as shown in the commands above
+if you want plans to remain available after the container exits.
 
-Example:
-
-```bash
-docker run --rm -it \
-  -v "${PWD}/inputs:/app/inputs" \
-  -v "${PWD}/data:/app/data" \
-  --env-file .env \
-  workload-planner
-```
-
----
-
-## Docker
-
-### Build
-
-From the project root:
-
-```bash
-docker build -t workload-planner .
-```
-
-### Process all documents
-
-```bash
-docker run --rm \
-  -v "${PWD}/inputs:/app/inputs" \
-  -v "${PWD}/data:/app/data" \
-  --env-file .env \
-  workload-planner --inputs inputs/
-```
-
-### Interactive mode
-
-```bash
-docker run --rm -it \
-  -v "${PWD}/inputs:/app/inputs" \
-  -v "${PWD}/data:/app/data" \
-  --env-file .env \
-  workload-planner
-```
-
-The `inputs/` volume allows the container to access the user's documents.
-
-The `data/` volume allows generated study plans to persist on the host computer.
-
----
+------------------------------------------------------------------------
 
 ## Testing
 
-The project includes automated tests for the planning logic and interactive functionality.
+The project includes automated tests for planning logic and interactive
+functionality.
 
-Run the test suite:
+Run the tests from the project root:
 
-```bash
-pytest test_logic.py test_interactive.py -q
+``` bash
+python -m pytest test_logic.py test_interactive.py -q
 ```
 
-The tests are designed to run without requiring an OpenRouter API call.
+These tests are designed to run without making an OpenRouter API call.
 
----
+------------------------------------------------------------------------
 
 ## Project Structure
 
-```text
+``` text
 .
 ├── ai_manager.py
 ├── data_manager.py
 ├── io_manager.py
 ├── logic_manager.py
 ├── main.py
-│
 ├── inputs/
 │   └── Academic documents
-│
 ├── data/
 │   └── study_plans.json
-│
 ├── tests/
-│   └── Test files
-│
+│   └── Test files (if present in this checkout)
 ├── .env.example
 ├── .gitignore
 ├── Dockerfile
@@ -490,40 +427,28 @@ The tests are designed to run without requiring an OpenRouter API call.
 └── README.md
 ```
 
----
+The exact files and test layout may vary slightly by repository
+revision.
+
+------------------------------------------------------------------------
 
 ## Security
 
-API keys and other secrets must not be committed to the repository.
+-   Keep API keys and other secrets in `.env`.
+-   Do not commit `.env`, passwords, or files containing real
+    credentials.
+-   Use `.env.example` as a template with placeholder values only.
+-   Before committing, inspect `git status` and the staged diff to
+    confirm that secrets are not included.
 
-Use:
-
-```text
-.env
-```
-
-for local secrets.
-
-The repository provides:
-
-```text
-.env.example
-```
-
-as a template.
-
-Never commit:
-
-```text
-.env
-```
-
-or any file containing an actual API key, password, or other secret.
-
----
+------------------------------------------------------------------------
 
 ## Notes
 
-The planner is designed as a command-line application and does not require a graphical user interface.
+The planner is a command-line application and does not require a
+graphical user interface.
 
-The recommended workflow is to use Docker so that the project can be run using a consistent environment without manually installing the Python dependencies on the host machine.
+Docker is recommended for a consistent runtime environment. Use
+`--interactive` when you want the interactive menu, and
+`--inputs inputs/` when you want to process all supported documents in
+the input folder.
