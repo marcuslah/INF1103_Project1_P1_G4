@@ -88,3 +88,93 @@ class Task:
             except ValueError:
                 continue
         return None
+
+    # ----------------------------- read-only -----------------------------
+
+    @property
+    def task_id(self) -> str:
+        return self._task_id
+
+    @property
+    def description(self) -> str:
+        return self._description
+
+    @property
+    def dependencies(self) -> list[str]:
+        return list(self._dependencies)
+
+    @property
+    def source_document(self) -> str:
+        return self._source_document
+
+    @property
+    def source_type(self) -> str:
+        return self._source_type
+
+    @property
+    def deadline_date(self) -> date | None:
+        """The deadline as a date object, or None when there is no valid deadline."""
+        return self.parse_date(self._deadline)
+
+    @property
+    def text(self) -> str:
+        """Title and description together, used when searching for timeline hints."""
+        return f"{self._title} {self._description}"
+
+    # ----------------------------- editable -----------------------------
+
+    @property
+    def title(self) -> str:
+        return self._title
+
+    @title.setter
+    def title(self, value: str) -> None:
+        self._title = str(value).strip()
+
+    @property
+    def category(self) -> str:
+        return self._category
+
+    @category.setter
+    def category(self, value: str) -> None:
+        self._category = self._clean_choice(value, self.CATEGORIES, "other")
+
+    @property
+    def deadline(self) -> str:
+        return self._deadline
+
+    @deadline.setter
+    def deadline(self, value: str) -> None:
+        self._deadline = str(value or "").strip()
+
+    @property
+    def estimated_minutes(self) -> int:
+        return self._estimated_minutes
+
+    @estimated_minutes.setter
+    def estimated_minutes(self, value: Any) -> None:
+        self._estimated_minutes = int(round(self._to_float(value)))
+
+    @property
+    def difficulty(self) -> str:
+        return self._difficulty
+
+    @difficulty.setter
+    def difficulty(self, value: str) -> None:
+        self._difficulty = self._clean_choice(value, self.DIFFICULTIES, "medium")
+
+    @property
+    def priority(self) -> str:
+        return self._priority
+
+    @priority.setter
+    def priority(self, value: str) -> None:
+        self._priority = self._clean_choice(value, self.PRIORITIES, "medium")
+
+    @property
+    def confidence(self) -> float:
+        return self._confidence
+
+    @confidence.setter
+    def confidence(self, value: Any) -> None:
+        self._confidence = self._to_float(value)
