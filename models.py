@@ -178,3 +178,61 @@ class Task:
     @confidence.setter
     def confidence(self, value: Any) -> None:
         self._confidence = self._to_float(value)
+
+    # ----------------------------- storage -----------------------------
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the task in the stored (Part 1) dictionary shape."""
+        data: dict[str, Any] = dict(self._extra)
+        data.update({
+            "task_id": self._task_id,
+            "title": self._title,
+            "description": self._description,
+            "category": self._category,
+            "deadline": self._deadline,
+            "estimated_minutes": self._estimated_minutes,
+            "difficulty": self._difficulty,
+            "priority": self._priority,
+            "dependencies": list(self._dependencies),
+            "source_document": self._source_document,
+            "source_type": self._source_type,
+            "confidence": self._confidence,
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Task":
+        """Build a task from a dictionary. Old key names are still accepted."""
+        if not isinstance(data, dict):
+            raise ValueError("task data must be a dictionary")
+        minutes = data.get("estimated_minutes")
+        if minutes is None and data.get("estimated_hours") is not None:
+            minutes = cls._to_float(data.get("estimated_hours")) * 60.0
+        confidence = data.get("confidence")
+        if confidence is None:
+            confidence = data.get("ai_confidence", 0.0)
+        dependencies = data.get("dependencies")
+        if not isinstance(dependencies, list):
+            dependencies = []
+        extra = {
+            key: value for key, value in data.items()
+            if key not in cls._KNOWN_KEYS and key not in cls._LEGACY_KEYS
+        }
+        return cls(
+            task_id=str(data.get("task_id") or "task"),
+            title=str(data.get("title") or "Untitled task"),
+            description=str(data.get("description") or ""),
+            category=data.get("category") or data.get("task_type") or "other",
+            deadline=str(data.get("deadline") or data.get("due_date") or ""),
+            estimated_minutes=minutes,
+            difficulty=data.get("difficulty"),
+            priority=data.get("priority"),
+            dependencies=dependencies,
+            source_document=str(data.get("source_document") or data.get("course_code") or "UNKNOWN"),
+            source_type=str(data.get("source_type") or data.get("source") or "ai"),
+            confidence=confidence,
+            extra=extra,
+        )
+
+    def __repr__(self) -> str:
+        return f"Task({self._task_id!r}, {self._title!r}, {self._estimated_minutes} min)"
