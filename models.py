@@ -486,3 +486,67 @@ class StudyPlan:
         self._tasks = kept
         self._documents = self._documents_from_tasks()
         return True
+
+    def week(self, week_index: int) -> WeekSchedule | None:
+        for week in self._weekly_plan:
+            if week.week_index == int(week_index):
+                return week
+        return None
+
+    def apply_analysis(self, analysis: PlanAnalysis) -> None:
+        """Store the Logic Manager's results on this plan."""
+        self._tasks = analysis.tasks
+        self._weekly_plan = analysis.weekly_plan
+        self._metrics = analysis.metrics
+        self._decisions = analysis.decisions
+        self._notes = analysis.notes
+        self._documents = self._documents_from_tasks()
+
+    # ----------------------------- storage -----------------------------
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the plan in the stored (Part 1) dictionary shape."""
+        data: dict[str, Any] = dict(self._extra)
+        data.update({
+            "plan_id": self._plan_id,
+            "created_at": self._created_at,
+            "semester": self._semester,
+            "documents": list(self._documents),
+            "tasks": [task.to_dict() for task in self._tasks],
+            "weekly_plan": [week.to_dict() for week in self._weekly_plan],
+            "metrics": dict(self._metrics),
+            "decisions": [decision.to_dict() for decision in self._decisions],
+            "notes": list(self._notes),
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "StudyPlan":
+        if not isinstance(data, dict):
+            raise ValueError("plan data must be a dictionary")
+        known = ("plan_id", "created_at", "semester", "documents", "tasks",
+                 "weekly_plan", "metrics", "decisions", "notes")
+        tasks = [Task.from_dict(item) for item in data.get("tasks", []) or [] if isinstance(item, dict)]
+        plan = cls(
+            plan_id=data.get("plan_id"),
+            tasks=tasks,
+            semester=data.get("semester", "unspecified"),
+            created_at=data.get("created_at"),
+            extra={key: value for key, value in data.items() if key not in known},
+        )
+        plan._weekly_plan = [
+            WeekSchedule.from_dict(item) for item in data.get("weekly_plan", []) or [] if isinstance(item, dict)
+        ]
+        metrics = data.get("metrics", {})
+        plan._metrics = dict(metrics) if isinstance(metrics, dict) else {}
+        plan._decisions = [
+            Decision.from_dict(item) for item in data.get("decisions", []) or [] if isinstance(item, dict)
+        ]
+        plan._notes = [str(note) for note in data.get("notes", []) or []]
+        documents = data.get("documents")
+        if isinstance(documents, list) and documents:
+            plan._documents = [str(item) for item in documents]
+        return plan
+
+    def __repr__(self) -> str:
+        return f"StudyPlan({self._plan_id!r}, {len(self._tasks)} tasks)"
