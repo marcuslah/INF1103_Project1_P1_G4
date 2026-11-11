@@ -355,3 +355,41 @@ class WeekSchedule:
             if isinstance(item, dict):
                 week.add_allocation(item.get("task_id", ""), int(item.get("minutes", 0) or 0))
         return week
+
+
+class PlanAnalysis:
+    """Everything the Logic Manager produces for one set of tasks."""
+
+    def __init__(
+        self,
+        tasks: list[Task],
+        metrics: dict[str, Any],
+        decisions: list[Decision],
+        weekly_plan: list[WeekSchedule],
+        notes: list[str],
+    ) -> None:
+        self._tasks = list(tasks)
+        self._metrics = dict(metrics)
+        self._decisions = list(decisions)
+        self._weekly_plan = list(weekly_plan)
+        self._notes = list(notes)
+
+    @property
+    def tasks(self) -> list[Task]:
+        return list(self._tasks)
+
+    @property
+    def metrics(self) -> dict[str, Any]:
+        return dict(self._metrics)
+
+    @property
+    def decisions(self) -> list[Decision]:
+        return list(self._decisions)
+
+    @property
+    def weekly_plan(self) -> list[WeekSchedule]:
+        return list(self._weekly_plan)
+
+    @property
+    def notes(self) -> list[str]:
+        return list(self._notes)
