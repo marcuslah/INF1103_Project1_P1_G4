@@ -393,3 +393,96 @@ class PlanAnalysis:
     @property
     def notes(self) -> list[str]:
         return list(self._notes)
+
+
+class StudyPlan:
+    """A saved study plan: its tasks plus the schedule, metrics and decisions."""
+
+    def __init__(
+        self,
+        plan_id: str | None = None,
+        tasks: list[Task] | None = None,
+        semester: str = "unspecified",
+        created_at: str | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        self._plan_id = str(plan_id) if plan_id else self.new_id()
+        self._created_at = created_at or self._now_iso()
+        self._semester = str(semester or "unspecified")
+        self._tasks: list[Task] = list(tasks or [])      # aggregation: tasks are created elsewhere
+        self._weekly_plan: list[WeekSchedule] = []
+        self._metrics: dict[str, Any] = {}
+        self._decisions: list[Decision] = []
+        self._notes: list[str] = []
+        self._documents: list[str] = self._documents_from_tasks()
+        self._extra = dict(extra or {})
+
+    @staticmethod
+    def new_id() -> str:
+        return "plan-" + uuid.uuid4().hex[:10]
+
+    @staticmethod
+    def _now_iso() -> str:
+        return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+    def _documents_from_tasks(self) -> list[str]:
+        return sorted({task.source_document for task in self._tasks})
+
+    # ----------------------------- read access -----------------------------
+
+    @property
+    def plan_id(self) -> str:
+        return self._plan_id
+
+    @property
+    def created_at(self) -> str:
+        return self._created_at
+
+    @property
+    def semester(self) -> str:
+        return self._semester
+
+    @property
+    def tasks(self) -> list[Task]:
+        return list(self._tasks)
+
+    @property
+    def weekly_plan(self) -> list[WeekSchedule]:
+        return list(self._weekly_plan)
+
+    @property
+    def metrics(self) -> dict[str, Any]:
+        return dict(self._metrics)
+
+    @property
+    def decisions(self) -> list[Decision]:
+        return list(self._decisions)
+
+    @property
+    def notes(self) -> list[str]:
+        return list(self._notes)
+
+    @property
+    def documents(self) -> list[str]:
+        return list(self._documents)
+
+    # ----------------------------- behaviour -----------------------------
+
+    def find_task(self, task_id: str) -> Task | None:
+        for task in self._tasks:
+            if task.task_id == str(task_id):
+                return task
+        return None
+
+    def add_task(self, task: Task) -> None:
+        self._tasks.append(task)
+        self._documents = self._documents_from_tasks()
+
+    def remove_task(self, task_id: str) -> bool:
+        """Remove a task by id. Returns False when no task has that id."""
+        kept = [task for task in self._tasks if task.task_id != str(task_id)]
+        if len(kept) == len(self._tasks):
+            return False
+        self._tasks = kept
+        self._documents = self._documents_from_tasks()
+        return True
