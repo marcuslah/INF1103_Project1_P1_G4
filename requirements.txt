@@ -1,4 +1,4 @@
-requests
-python-dotenv
-pypdf
-pytest
+requests==2.32.3
+python-dotenv==1.2.3
+pypdf==6.19.0
+pytest==9.2.0
