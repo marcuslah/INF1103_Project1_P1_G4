@@ -288,3 +288,70 @@ class Decision:
             rule_id=data.get("rule_id", ""),
             reason=data.get("reason", ""),
         )
+
+
+class WeekSchedule:
+    """One week of the study plan and the study sessions allocated to it."""
+
+    def __init__(self, week_index: int, start_date: str = "", end_date: str = "") -> None:
+        self._week_index = int(week_index)
+        self._start_date = str(start_date)
+        self._end_date = str(end_date)
+        self._allocations: list[dict[str, Any]] = []
+
+    @property
+    def week_index(self) -> int:
+        return self._week_index
+
+    @property
+    def start_date(self) -> str:
+        return self._start_date
+
+    @property
+    def end_date(self) -> str:
+        return self._end_date
+
+    @property
+    def allocations(self) -> list[dict[str, Any]]:
+        return [dict(item) for item in self._allocations]
+
+    @property
+    def allocated_minutes(self) -> int:
+        return sum(int(item["minutes"]) for item in self._allocations)
+
+    @property
+    def task_ids(self) -> list[str]:
+        """Task ids scheduled this week, each listed once, in the order they were added."""
+        seen: list[str] = []
+        for item in self._allocations:
+            if item["task_id"] not in seen:
+                seen.append(item["task_id"])
+        return seen
+
+    def add_allocation(self, task_id: str, minutes: int) -> None:
+        self._allocations.append({"task_id": str(task_id), "minutes": int(minutes)})
+
+    def session_count(self, task_id: str) -> int:
+        return sum(1 for item in self._allocations if item["task_id"] == str(task_id))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "week_index": self._week_index,
+            "start_date": self._start_date,
+            "end_date": self._end_date,
+            "allocated_minutes": self.allocated_minutes,
+            "task_ids": self.task_ids,
+            "allocations": self.allocations,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "WeekSchedule":
+        week = cls(
+            week_index=int(data.get("week_index", 0) or 0),
+            start_date=data.get("start_date", ""),
+            end_date=data.get("end_date", ""),
+        )
+        for item in data.get("allocations", []) or []:
+            if isinstance(item, dict):
+                week.add_allocation(item.get("task_id", ""), int(item.get("minutes", 0) or 0))
+        return week
