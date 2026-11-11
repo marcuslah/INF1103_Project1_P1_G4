@@ -1,6 +1,9 @@
 .git
+.github
 .venv
 __pycache__
 *.pyc
 .env
 .pytest_cache
+data/*.json
+data/*.db
