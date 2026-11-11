@@ -236,3 +236,55 @@ class Task:
 
     def __repr__(self) -> str:
         return f"Task({self._task_id!r}, {self._title!r}, {self._estimated_minutes} min)"
+
+
+class Decision:
+    """The Logic Manager's verdict on one task: which rule fired and why."""
+
+    ACCEPT = "ACCEPT"
+    FLAG = "FLAG"
+    REJECT = "REJECT"
+
+    def __init__(self, task_id: str, decision: str, rule_id: str, reason: str) -> None:
+        self._task_id = str(task_id)
+        self._decision = str(decision)
+        self._rule_id = str(rule_id)
+        self._reason = str(reason)
+
+    @property
+    def task_id(self) -> str:
+        return self._task_id
+
+    @property
+    def decision(self) -> str:
+        return self._decision
+
+    @property
+    def rule_id(self) -> str:
+        return self._rule_id
+
+    @property
+    def reason(self) -> str:
+        return self._reason
+
+    @property
+    def is_kept(self) -> bool:
+        """Accepted and flagged tasks stay in the schedule; rejected ones do not."""
+        return self._decision in (self.ACCEPT, self.FLAG)
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "task_id": self._task_id,
+            "decision": self._decision,
+            "rule_id": self._rule_id,
+            "reason": self._reason,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Decision":
+        return cls(
+            task_id=data.get("task_id", ""),
+            decision=data.get("decision", ""),
+            rule_id=data.get("rule_id", ""),
+            reason=data.get("reason", ""),
+        )
