@@ -6,7 +6,7 @@ or a database; it only talks to a PlanRepository.
 """
 
 from __future__ import annotations
-from models import StudyPlan
+from models import StudyPlan, Task
 from repository import PlanRepository
 
 
