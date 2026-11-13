@@ -38,3 +38,28 @@ class DataManager:
 
     def list_plans(self) -> list[StudyPlan]:
         return [StudyPlan.from_dict(data) for data in self._repository.list_all()]
+
+    
+    # ----------------------------- queries ----------------------------
+    def count_plans(self) -> int:
+        return len(self._repository.list_all())
+
+    def find_tasks(
+        self,
+        difficulty: str | None = None,
+        category: str | None = None,
+    ) -> list[tuple[str, Task]]:
+        """Return (plan_id, Task) pairs across every stored plan that match the filters."""
+        return [
+            (plan_id, Task.from_dict(task))
+            for plan_id, task in self._repository.find_tasks(difficulty=difficulty, category=category)
+        ]
+
+    def find_plans_by_document(self, document_name: str) -> list[StudyPlan]:
+        """Return the plans that were built from a given source document."""
+        wanted = str(document_name).strip().lower()
+        return [
+            plan for plan in self.list_plans()
+            if any(document.lower() == wanted for document in plan.documents)
+        ]
+
