@@ -8,7 +8,9 @@ import glob
 import json
 import os
 import pytest
+from data_manager import DataManager
 from json_repository import JsonPlanRepository
+from models import StudyPlan, Task
 from repository import PlanRepository, StorageError
 
 BACKENDS = ["json"]
@@ -165,3 +167,45 @@ def test_json_file_keeps_the_part_one_layout(tmp_path) -> None:
     on_disk = json.loads(path.read_text(encoding="utf-8"))
     assert set(on_disk.keys()) == {"schema_version", "updated_at", "plans"}
     assert os.path.getsize(path) > 0
+
+
+# ----------------------------- DataManager tests ----------------------------
+def make_plan(plan_id: str, *tasks: Task) -> StudyPlan:
+    return StudyPlan(plan_id=plan_id, tasks=list(tasks))
+
+def test_data_manager_saves_and_loads_objects(repo) -> None:
+    data = DataManager(repo)
+    data.save_plan(make_plan("p1", Task("A", "Read", source_document="CS101")))
+    loaded = data.get_plan("p1")
+    assert isinstance(loaded, StudyPlan)
+    assert isinstance(loaded.tasks[0], Task)
+    assert loaded.tasks[0].title == "Read"
+    assert data.get_plan("missing") is None
+    assert data.count_plans() == 1
+
+def test_data_manager_update_and_delete(repo) -> None:
+    data = DataManager(repo)
+    plan = make_plan("p1", Task("A", "Read"))
+    data.save_plan(plan)
+    plan.find_task("A").title = "Read chapter 2"
+    assert data.update_plan(plan) is True
+    assert data.get_plan("p1").tasks[0].title == "Read chapter 2"
+    assert data.delete_plan("p1") is True
+    assert data.list_plans() == []
+    assert data.update_plan(plan) is False
+
+def test_data_manager_find_tasks_returns_task_objects(repo) -> None:
+    data = DataManager(repo)
+    data.save_plan(make_plan("p1", Task("A", "Hard one", difficulty="hard"), Task("B", "Easy one", difficulty="easy")))
+    found = data.find_tasks(difficulty="hard")
+    assert [(plan_id, task.task_id) for plan_id, task in found] == [("p1", "A")]
+    assert isinstance(found[0][1], Task)
+
+def test_data_manager_find_plans_by_document(repo) -> None:
+    data = DataManager(repo)
+    data.save_plan(make_plan("p1", Task("A", "X", source_document="CS101")))
+    data.save_plan(make_plan("p2", Task("B", "Y", source_document="CS102")))
+    assert [plan.plan_id for plan in data.find_plans_by_document("cs102")] == ["p2"]
+
+def test_data_manager_reports_storage_location(repo) -> None:
+    assert DataManager(repo).storage_location == repo.location
