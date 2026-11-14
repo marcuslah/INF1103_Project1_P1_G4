@@ -1,560 +1,208 @@
-"""io_manager.py — The ONLY module permitted to call print() / input().
+"""io_manager.py — The IO Manager: collects input and displays results.
 
-35 functions for displaying text and prompting the user, plus PDF ingestion.
-
-Member 1:Marcus (Ingestion) & Member 2:Khant (Display).
-
+Everything the user sees or types passes through this class. It contains no
+business rules; it only asks, reads documents, and shows.
 """
 
 from __future__ import annotations
 
-import logging
-import os
-import types
-from datetime import datetime
+from typing import Any
 
-_PYPDF_NOISE_TEXT = "Ignoring wrong pointing object"
-_pypdf_log_filter_attached = False
-
-# Filter a known harmless pypdf warning so users only see useful messages.
-# Keep other PDF warnings available for troubleshooting.
-def _attach_pypdf_log_filter() -> None:
-    """Drop ONLY pypdf's benign 'Ignoring wrong pointing object' log records.
-
-    pypdf emits these through ``logging.getLogger('pypdf._reader').warning(...)``
-    for slightly malformed xref tables; they do not affect extraction.
-    """
-    global _pypdf_log_filter_attached
-    if _pypdf_log_filter_attached:
-        return
-    
-# Check a PDF log message and hide only the known harmless warning.
-# Keep the record if its text cannot be read.
-    def _keep(record: "logging.LogRecord") -> bool:
-        try:
-            return _PYPDF_NOISE_TEXT not in record.getMessage()
-        except Exception:
-            return True
-
-    filterer = types.SimpleNamespace(filter=_keep)
-    logging.getLogger("pypdf").addFilter(filterer)
-    logging.getLogger("pypdf._reader").addFilter(filterer)
-    _pypdf_log_filter_attached = True
+from io_console import ConsoleIO
+from io_renderer import TableRenderer
+from models import Decision, StudyPlan, Task, WeekSchedule
 
 
-MAIN_MENU_OPTIONS: tuple[tuple[str, str], ...] = (
-    ("1", "View saved plans"),
-    ("2", "Delete a plan"),
-    ("3", "Search tasks by week"),
-    ("4", "Search tasks by difficulty"),
-    ("5", "Create new plan"),
-    ("6", "Exit"),
-)
+class IOManager:
+    """Facade over the console, the table renderer and the document loader."""
 
-PLAN_MENU_OPTIONS: tuple[tuple[str, str], ...] = (
-    ("1", "View all tasks"),
-    ("2", "View weekly schedule"),
-    ("3", "View metrics"),
-    ("4", "Edit task"),
-    ("5", "Delete task"),
-    ("6", "Back"),
-)
-
-BANNER_WIDTH: int = 60
-
-# Convert a value to a decimal number for displaying workload totals.
-# Use the default if the input cannot be converted.
-def _to_float(value, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-# Collect one line of terminal input from the user.
-# Exit cleanly when no input stream is available.
-def _read(label: str) -> str:
-    """Thin wrapper over input() that exits cleanly on EOF (non-interactive)."""
-    try:
-        return input(label)
-    except EOFError:
-        display_line("")
-        raise SystemExit(0)
-
-
-# --------------------------- Member:Khant and Marcus - Display ---------------------------
-
-# Display a line of text in the terminal.
-# This keeps printing inside the IO Manager.
-def display_line(text: str = "") -> None:
-    print(text)
-
-# Display a formatted status message such as SUCCESS or ERROR.
-# Normalise unknown status labels to INFO.
-def banner(level: str, message: str) -> None:
-    tag = str(level).strip().upper()
-    if tag not in ("INFO", "WARN", "ERROR", "SUCCESS"):
-        tag = "INFO"
-    divider = "=" * BANNER_WIDTH
-    print(divider)
-    print(f"[{tag}] {message}")
-    print(divider)
-
-# Build a readable text table with column widths and borders.
-# Return the formatted string rather than printing it here.
-def render_table(headers: list[str], rows: list[list[str]], max_col_width: int = 30) -> str:
-    """Render a plain-ASCII table as a string (caller decides how to display)."""
-    header_cells = [str(h) for h in headers]
-    column_count = len(header_cells)
-    table_rows: list[list[str]] = []
-    for row in rows:
-        cells = ["" if cell is None else str(cell) for cell in row]
-        if len(cells) < column_count:
-            cells += [""] * (column_count - len(cells))
-        table_rows.append(cells[:column_count])
-
-    widths: list[int] = []
-    for index in range(column_count):
-        width = len(header_cells[index])
-        for row in table_rows:
-            width = max(width, len(row[index]))
-        widths.append(min(width, max_col_width))
-
-    # Shorten long cell text so it fits the chosen table column width.
-    def clip(text: str) -> str:
-        if len(text) <= max_col_width:
-            return text
-        return text[: max(0, max_col_width - 3)] + "..."
-    
-    # Pad and align each cell, then combine cells into one table row.
-    def render_row(cells: list[str]) -> str:
-        padded = []
-        for index, cell in enumerate(cells):
-            padded.append(" " + clip(cell)[: widths[index]].ljust(widths[index]) + " ")
-        return "|" + "|".join(padded) + "|"
-
-    border = "+" + "+".join("-" * (w + 2) for w in widths) + "+"
-    lines = [border, render_row(header_cells), border]
-    for row in table_rows:
-        lines.append(render_row(row))
-    lines.append(border)
-    return "\n".join(lines)
-
-# Extract task details and present them in a consistent table.
-# Reuse render_table to avoid repeating formatting logic.
-def render_task_table(tasks: list[dict]) -> str:
-    rows = []
-    for task in tasks:
-        rows.append([
-            task.get("task_id", ""),
-            task.get("title", ""),
-            task.get("deadline", ""),
-            task.get("estimated_minutes", ""),
-            str(task.get("difficulty", "")).capitalize(),
-            str(task.get("priority", "")).capitalize(),
-            str(task.get("category", "")).capitalize(),
-            task.get("source_document", ""),
-        ])
-    return render_table(
-        ["ID", "Task", "Deadline", "Est. (min)", "Difficulty", "Priority", "Category", "Source"],
-        rows,
+    MAIN_MENU_OPTIONS: tuple[tuple[str, str], ...] = (
+        ("1", "View saved plans"),
+        ("2", "Delete a plan"),
+        ("3", "Search tasks by week"),
+        ("4", "Search tasks by difficulty"),
+        ("5", "Create new plan"),
+        ("6", "Workload summary"),
+        ("7", "Exit"),
     )
+    PLAN_MENU_OPTIONS: tuple[tuple[str, str], ...] = (
+        ("1", "View all tasks"),
+        ("2", "View weekly schedule"),
+        ("3", "View metrics"),
+        ("4", "Edit task"),
+        ("5", "Delete task"),
+        ("6", "Back"),
+    )
+    TASK_CATEGORIES: tuple[str, ...] = Task.CATEGORIES
+    DIFFICULTY_LABELS: tuple[str, ...] = ("Easy", "Medium", "Hard")
 
-# Display each scheduled week with its dates, workload and task IDs.
-def render_weekly_table(weekly_plan: list[dict]) -> str:
-    rows = []
-    for week in weekly_plan:
-        rows.append([
-            week.get("week_index", ""),
-            week.get("start_date", ""),
-            week.get("end_date", ""),
-            week.get("allocated_minutes", ""),
-            ", ".join(str(t) for t in week.get("task_ids", [])),
-        ])
-    return render_table(["Week", "Start", "End", "Est. (min)", "Tasks"], rows)
+    def __init__(self, console: ConsoleIO | None = None, document_loader: Any = None) -> None:
+        self._console = console or ConsoleIO()
+        self._documents = document_loader          # aggregation: a DocumentLoader made elsewhere
+        self._renderer = TableRenderer()           # composition: created and owned here
 
-# Turn workload and burnout measurements into a readable summary table.
-def render_metrics(metrics: dict) -> str:
-    rows = [
-        ["Tasks", metrics.get("task_count", 0)],
-        ["Total estimated minutes", metrics.get("total_estimated_minutes", 0)],
-        ["Total weighted minutes", metrics.get("total_weighted_minutes", 0)],
-        ["Peak weekly minutes", metrics.get("peak_weekly_minutes", 0)],
-        ["Cognitive load index", metrics.get("cognitive_load_index", 0)],
-        ["Burnout index", metrics.get("burnout_index", 0)],
-        ["Deadline clashes", len(metrics.get("deadline_clashes", []))],
-    ]
-    return render_table(["metric", "value"], rows)
+    # ----------------------------- messages -----------------------------
 
-# Show the rule, outcome and reason for each Logic Manager decision.
-def render_decisions(decisions: list[dict]) -> str:
-    rows = []
-    for decision in decisions:
-        rows.append([
-            decision.get("task_id", ""),
-            decision.get("decision", ""),
-            decision.get("rule_id", ""),
-            decision.get("reason", ""),
-        ])
-    return render_table(["task_id", "decision", "rule", "reason"], rows)
+    def show_line(self, text: str = "") -> None:
+        self._console.display_line(text)
 
-# Summarise a saved plan using its course list, workload metrics and notes.
-def render_summary(plan_entry: dict) -> str:
-    metrics = plan_entry.get("metrics", {})
-    courses = ", ".join(plan_entry.get("courses", [])) or "(none)"
-    lines = [
-        f"Plan {plan_entry.get('plan_id', '?')} created {plan_entry.get('created_at', '?')}",
-        f"Courses: {courses}",
-        f"Tasks: {metrics.get('task_count', len(plan_entry.get('tasks', [])))}",
-        f"Peak weekly hours: {metrics.get('weekly_hours', 0)}",
-        f"Burnout index: {metrics.get('burnout_index', 0)}",
-        f"Cognitive load index: {metrics.get('cognitive_load_index', 0)}",
-    ]
-    for note in plan_entry.get("notes", []):
-        lines.append(f"- {note}")
-    return "\n".join(lines)
+    def show_info(self, message: str) -> None:
+        self._console.banner("INFO", message)
 
-# Display the main StudyPilot options and return the user’s selection.
-# Leave the actual menu action to main.py.
-def show_main_menu() -> str:
-    divider = "=" * 40
-    display_line("")
-    display_line(divider)
-    display_line("        StudyPilot (AI STUDY PLANNER)")
-    display_line(divider)
-    for key, label in MAIN_MENU_OPTIONS:
-        display_line(f"{key}. {label}")
-    display_line("")
-    return _read("Select an option: ").strip().lower()
+    def show_success(self, message: str) -> None:
+        self._console.banner("SUCCESS", message)
 
-# Display actions available for one saved plan and read the selection.
-def show_plan_menu(plan_id: str) -> str:
-    display_line("")
-    display_line("========== PLAN ==========")
-    display_line(f"Plan: {plan_id}")
-    for key, label in PLAN_MENU_OPTIONS:
-        display_line(f"{key}. {label}")
-    display_line("")
-    return _read("Select an option: ").strip().lower()
+    def show_warning(self, message: str) -> None:
+        self._console.banner("WARN", message)
 
-# List saved plans with task counts, document counts and workload totals.
-# Number entries so users can choose one.
-def render_plans_index(entries: list[dict]) -> str:
-    """Render the numbered list of saved plans with headline counts/workload."""
-    lines: list[str] = []
-    for index, entry in enumerate(entries):
-        metrics = entry.get("metrics", {}) if isinstance(entry, dict) else {}
-        documents = entry.get("documents", []) if isinstance(entry, dict) else []
-        hours = round(_to_float(metrics.get("total_weighted_minutes", 0)) / 60.0, 1)
-        lines.append(f"{index + 1}. {entry.get('plan_id', '?')}")
-        lines.append(f"   Documents: {len(documents)}")
-        lines.append(f"   Tasks: {metrics.get('task_count', len(entry.get('tasks', [])))}")
-        lines.append(f"   Weeks: {metrics.get('weeks_span', 0)}")
-        lines.append(f"   Total workload: {hours} hours")
-        lines.append("")
-    lines.append("0. Back")
-    return "\n".join(lines)
+    def show_error(self, message: str) -> None:
+        self._console.banner("ERROR", message)
 
-# Show tasks assigned to a selected week and its total allocated time.
-def render_week_view(week_index: int, week: dict, tasks: list[dict]) -> str:
-    """Render the tasks scheduled in a given week plus that week's total workload."""
-    lines = [f"========== WEEK {week_index} ==========", ""]
-    if not tasks:
-        lines.append("(no tasks scheduled this week)")
-        lines.append("")
-    for index, task in enumerate(tasks):
-        lines.append(f"{index + 1}. {task.get('source_document', '?')} - {task.get('title', '')}")
-        lines.append(f"   Difficulty: {str(task.get('difficulty', '')).capitalize()}")
-        lines.append(f"   Estimated: {task.get('estimated_minutes', 0)} min")
-        if task.get("deadline"):
-            lines.append(f"   Deadline: {task.get('deadline')}")
-        lines.append("")
-    minutes = int(week.get("allocated_minutes", 0)) if isinstance(week, dict) else 0
-    lines.append(f"Total workload: {round(minutes / 60.0, 1)} hours")
-    return "\n".join(lines)
+    # ----------------------------- menus -----------------------------
 
-# List tasks matching a difficulty and show their scheduled weeks.
-# Add their estimated minutes to calculate total workload.
-def render_difficulty_view(difficulty: str, tasks: list[dict], weeks_by_task: dict) -> str:
-    """Render all tasks of a given difficulty with their week(s) and workload total."""
-    lines = [f"========== DIFFICULTY: {str(difficulty).upper()} ==========", ""]
-    total_minutes = 0
-    for index, task in enumerate(tasks):
-        task_id = str(task.get("task_id", ""))
-        weeks = weeks_by_task.get(task_id, [])
-        week_text = ",".join(str(week) for week in weeks) if weeks else "-"
-        estimated = int(task.get("estimated_minutes", 0) or 0)
-        total_minutes += estimated
-        lines.append(f"{index + 1}. Week: {week_text} | {task.get('source_document', '?')} - {task.get('title', '')}")
-        lines.append(f"   Estimated: {estimated} min")
-        lines.append("")
-    lines.append(f"Matching tasks: {len(tasks)}")
-    lines.append(f"Total workload: {round(total_minutes / 60.0, 1)} hours")
-    return "\n".join(lines)
+    def show_main_menu(self) -> str:
+        """Display the main menu and return the user's choice in lower case."""
+        divider = "=" * 40
+        self.show_line("")
+        self.show_line(divider)
+        self.show_line("        StudyPilot (AI STUDY PLANNER)")
+        self.show_line(divider)
+        for key, label in self.MAIN_MENU_OPTIONS:
+            self.show_line(f"{key}. {label}")
+        self.show_line("")
+        return self._console.read("Select an option: ").strip().lower()
 
-# Display numbered task choices for edit or delete operations.
-def render_task_index(tasks: list[dict]) -> str:
-    """Render a numbered list of tasks for selection."""
-    lines: list[str] = []
-    for index, task in enumerate(tasks):
-        lines.append(
-            f"{index + 1}. {task.get('task_id', '?')} | {task.get('title', '')} "
-            f"({str(task.get('difficulty', '?')).capitalize()}, {task.get('estimated_minutes', 0)} min)"
-        )
-    lines.append("0. Back")
-    return "\n".join(lines)
+    def show_plan_menu(self, plan_id: str) -> str:
+        """Display the menu for one saved plan and return the user's choice."""
+        self.show_line("")
+        self.show_line("========== PLAN ==========")
+        self.show_line(f"Plan: {plan_id}")
+        for key, label in self.PLAN_MENU_OPTIONS:
+            self.show_line(f"{key}. {label}")
+        self.show_line("")
+        return self._console.read("Select an option: ").strip().lower()
 
-# Keep asking until the user enters a number within the allowed range.
-# Optionally allow zero as a back or cancel selection.
-def prompt_index(label: str, count: int, allow_zero: bool = True) -> int:
-    """Prompt for a selection in ``low..count`` (``0..count`` when allow_zero). Returns the int."""
-    low = 0 if allow_zero else 1
-    while True:
-        raw = _read(f"{label}: ").strip()
-        try:
-            value = int(raw)
-        except ValueError:
-            display_line("  ! Please enter a number.")
-            continue
-        if low <= value <= count:
-            return value
-        display_line(f"  ! Enter a number between {low} and {count}.")
+    def choose_option(self, title: str, options: list[str]) -> int:
+        """Show a numbered list with "0. Back" and return the chosen number."""
+        self.show_line("")
+        self.show_line(title)
+        for index, label in enumerate(options, start=1):
+            self.show_line(f"{index}. {label}")
+        self.show_line("0. Back")
+        return self._console.prompt_index("Select an option", len(options))
 
-# Ask for yes or no confirmation and return a Boolean result.
-# Reject other responses rather than guessing the intent.
-def confirm(prompt: str) -> bool:
-    while True:
-        answer = _read(f"{prompt} [y/n]: ").strip().lower()
-        if answer in ("y", "yes"):
-            return True
-        if answer in ("n", "no"):
-            return False
-        display_line("  ! Please answer y or n.")
+    # ----------------------------- displaying results -----------------------------
 
-#---------------------------Member: Marcus insertion -----------------------------#
+    def show_tasks(self, tasks: list[Task]) -> None:
+        self.show_line(self._renderer.tasks(tasks))
 
-# Read and trim a text answer, repeating the prompt if blanks are forbidden.
-def prompt_line(label: str, allow_empty: bool = False) -> str:
-    while True:
-        value = _read(f"{label}: ").strip()
-        if value or allow_empty:
-            return value
-        display_line("  ! Input cannot be empty.")
+    def show_weekly_plan(self, weekly_plan: list[WeekSchedule]) -> None:
+        self.show_line(self._renderer.weekly(weekly_plan))
 
+    def show_metrics(self, metrics: dict[str, Any]) -> None:
+        self.show_line(self._renderer.metrics(metrics))
 
-# Request a decimal number and check it falls between given limits.
-def prompt_float(label: str, minimum: float = 0.0, maximum: float = 1000.0) -> float:
-    while True:
-        raw = _read(f"{label}: ").strip()
-        try:
-            value = float(raw)
-        except ValueError:
-            display_line("  ! Please enter a number.")
-            continue
-        if minimum <= value <= maximum:
-            return value
-        display_line(f"  ! Value must be between {minimum} and {maximum}.")
+    def show_decisions(self, decisions: list[Decision]) -> None:
+        self.show_line(self._renderer.decisions(decisions))
 
+    def show_plan_results(self, plan: StudyPlan) -> None:
+        """Show everything produced for a newly analysed plan."""
+        self.show_tasks(plan.tasks)
+        self.show_metrics(plan.metrics)
+        self.show_decisions(plan.decisions)
+        self.show_weekly_plan(plan.weekly_plan)
 
-# Request a whole number and reject non-integers or out-of-range values.
-def prompt_int(label: str, minimum: int = 0, maximum: int = 100) -> int:
-    while True:
-        raw = _read(f"{label}: ").strip()
-        try:
-            value = int(raw)
-        except ValueError:
-            display_line("  ! Please enter a whole number.")
-            continue
-        if minimum <= value <= maximum:
-            return value
-        display_line(f"  ! Value must be between {minimum} and {maximum}.")
+    def show_week_view(self, week_index: int, week: WeekSchedule | None, tasks: list[Task]) -> None:
+        self.show_line(self._renderer.week_view(week_index, week, tasks))
 
-# Ask for a date and use datetime to check the requested format.
-# Repeat until the user provides a valid calendar date.
-def prompt_date(label: str, fmt: str = "%Y-%m-%d") -> str:
-    while True:
-        raw = _read(f"{label} ({fmt}): ").strip()
-        try:
-            datetime.strptime(raw, fmt)
-            return raw
-        except ValueError:
-            display_line(f"  ! Invalid date, expected {fmt}.")
+    def show_difficulty_view(self, difficulty: str, tasks: list[Task], weeks_by_task: dict[str, list[int]]) -> None:
+        self.show_line(self._renderer.difficulty_view(difficulty, tasks, weeks_by_task))
 
-# Limit user input to one of the available choices.
-# Compare without case sensitivity.
-def prompt_choice(label: str, choices: list[str]) -> str:
-    display_line(f"{label} [{'/'.join(choices)}]")
-    lowered = [choice.lower() for choice in choices]
-    while True:
-        raw = _read("> ").strip().lower()
-        if raw in lowered:
-            return raw
-        display_line("  ! Choose one of: " + ", ".join(choices))
+    def show_summary(self, report: Any) -> None:
+        """New feature: display the workload summary across all saved plans."""
+        self.show_line(self._renderer.summary(report))
 
-# Reuse the shared confirmation function for a yes/no question.
-def prompt_yes_no(label: str) -> bool:
-    return confirm(label)
+    # ----------------------------- choosing things -----------------------------
 
-# Read text from PDF pages using pypdf and join it into one string.
-# Return an error message for unreadable, protected or image-only PDFs.
-def extract_pdf_text(path: str) -> tuple[str | None, str | None]:
-    """Extract text from a PDF using pypdf. Returns ``(text, error)``. Never raises."""
-    if not path:
-        return None, "no path provided"
-    if not os.path.exists(path):
-        return None, f"file not found: {path}"
-    try:
-        from pypdf import PdfReader  # lazy import keeps non-PDF use dependency-free
-    except ImportError:
-        return None, "PDF support requires the 'pypdf' package (pip install pypdf)"
-    _attach_pypdf_log_filter()
-    try:
-        reader = PdfReader(path)
-    except Exception as exc:  # malformed / unreadable PDF
-        return None, f"could not open PDF {path}: {exc}"
-    if getattr(reader, "is_encrypted", False):
-        try:
-            reader.decrypt("")
-        except Exception:
-            return None, f"{path}: PDF is encrypted and could not be opened"
-        if getattr(reader, "is_encrypted", False):
-            return None, f"{path}: PDF is encrypted and requires a password"
-    try:
-        parts = []
-        for page in reader.pages:
-            parts.append(page.extract_text() or "")
-        joined = "\n".join(parts).strip()
-    except Exception as exc:  # extraction failure on a page
-        return None, f"could not extract text from {path}: {exc}"
-    if not joined:
-        return None, f"{path}: no extractable text (image-only PDF? OCR is not supported)"
-    return joined, None
+    def select_plan(self, plans: list[StudyPlan]) -> StudyPlan | None:
+        """List saved plans and return the chosen one (None for Back or when there are none)."""
+        if not plans:
+            self.show_warning("No saved plans yet.")
+            return None
+        self.show_line(self._renderer.plans_index(plans))
+        choice = self._console.prompt_index("Select a plan (0 to go back)", len(plans))
+        return plans[choice - 1] if choice else None
 
-# Choose how to read a syllabus based on its file type.
-# Use PDF extraction for PDFs and UTF-8 reading for other files.
-def read_syllabus_file(path: str) -> tuple[str | None, str | None]:
-    """Read a document as text (.pdf is extracted, others read as UTF-8). Returns ``(text, error)``."""
-    if not path:
-        return None, "no path provided"
-    if not os.path.exists(path):
-        return None, f"file not found: {path}"
-    if path.lower().endswith(".pdf"):
-        return extract_pdf_text(path)
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            return handle.read(), None
-    except UnicodeDecodeError:
-        return None, f"{path}: not UTF-8 text (binary file?)"
-    except OSError as exc:
-        return None, f"could not read {path}: {exc}"
+    def select_task(self, tasks: list[Task]) -> Task | None:
+        """List tasks and return the chosen one (None for Back or when there are none)."""
+        if not tasks:
+            self.show_warning("This plan has no tasks.")
+            return None
+        self.show_line(self._renderer.task_index(tasks))
+        choice = self._console.prompt_index("Select a task (0 to go back)", len(tasks))
+        return tasks[choice - 1] if choice else None
 
-# Find supported study documents in the specified input folder.
-# Return file paths in a predictable sorted order.
-def discover_syllabi(inputs_dir: str = "inputs") -> list[str]:
-    """Return candidate document files inside ``inputs_dir``."""
-    if not inputs_dir or not os.path.isdir(inputs_dir):
-        return []
-    found = []
-    for name in sorted(os.listdir(inputs_dir)):
-        if name.lower().endswith((".json", ".txt", ".md", ".pdf")):
-            found.append(os.path.join(inputs_dir, name))
-    return found
+    def select_documents(self, paths: list[str], folder: str) -> list[str]:
+        """Let the user pick one or more documents. Empty list when cancelled."""
+        self.show_line("")
+        self.show_line(f"Documents available in {folder}/:")
+        self.show_line(self._renderer.document_index(paths))
+        chosen = self._console.prompt_indices("Select documents", len(paths))
+        return [paths[index - 1] for index in chosen]
 
-# Check whether a date string matches the expected calendar format.
-def _is_valid_date(value: str, fmt: str = "%Y-%m-%d") -> bool:
-    try:
-        datetime.strptime(value, fmt)
-        return True
-    except ValueError:
-        return False
+    # ----------------------------- asking questions -----------------------------
 
-# Collect study tasks one at a time from terminal prompts.
-# Validate each response and store the tasks as dictionaries.
-def ingest_interactive_tasks(source_name: str) -> list[dict]:
-    """Prompt the user for study tasks until they leave the title blank."""
-    display_line(f"Entering tasks for {source_name}. Leave the title blank to finish.")
-    tasks: list[dict] = []
-    counter = 1
-    while True:
-        title = prompt_line("Task title (blank to finish)", allow_empty=True)
-        if not title:
-            break
-        description = prompt_line("Description", allow_empty=True)
-        category = prompt_choice(
-            "Category",
-            ["assignment", "exam", "tutorial", "lab", "project", "reading", "revision", "other"],
-        )
-        deadline = prompt_line("Deadline YYYY-MM-DD (blank = none)", allow_empty=True)
-        while deadline and not _is_valid_date(deadline):
-            display_line("  ! Invalid date, expected YYYY-MM-DD.")
-            deadline = prompt_line("Deadline YYYY-MM-DD (blank = none)", allow_empty=True)
-        minutes = prompt_int("Estimated minutes", 0, 100000)
-        difficulty = prompt_choice("Difficulty", ["easy", "medium", "hard"])
-        priority = prompt_choice("Priority", ["low", "medium", "high"])
-        tasks.append({
-            "task_id": f"manual-{counter}",
-            "title": title,
-            "description": description,
-            "category": category,
-            "deadline": deadline,
-            "estimated_minutes": minutes,
-            "difficulty": difficulty,
-            "priority": priority,
-            "dependencies": [],
-            "source_document": source_name,
-            "source_type": "manual",
-            "confidence": 1.0,
-        })
-        counter += 1
-    return tasks
+    def ask_text(self, label: str, allow_empty: bool = False) -> str:
+        return self._console.prompt_line(label, allow_empty=allow_empty)
 
-# Show available document filenames as numbered choices.
-# Include instructions for selecting multiple documents.
-def render_document_index(paths: list[str]) -> str:
-    """Render a numbered list of selectable documents (basename shown)."""
-    lines: list[str] = []
-    for index, path in enumerate(paths):
-        lines.append(f"{index + 1}. {os.path.basename(path)}")
-    lines.append("")
-    lines.append("Tip: enter numbers like 1,3 or a range like 1-3; type 'all' or leave blank for every document; 0 cancels.")
-    return "\n".join(lines)
+    def ask_int(self, label: str, minimum: int = 0, maximum: int = 100) -> int:
+        return self._console.prompt_int(label, minimum, maximum)
 
-# Accept one or more document choices, including ranges and all.
-# Reject invalid selections and return unique sorted indices.
-def prompt_indices(label: str, count: int) -> list[int]:
-    """Prompt for one or more selections in ``1..count``.
+    def ask_difficulty(self, label: str = "Difficulty") -> str:
+        return self._console.prompt_choice(label, list(self.DIFFICULTY_LABELS))
 
-    Accepts comma/space separated numbers and ranges (e.g. ``1-3``);
-    ``all`` (or blank) selects everything; ``0`` cancels. Returns a sorted,
-    de-duplicated list of 1-based indices (empty list when cancelled).
-    """
-    while True:
-        raw = _read(f"{label}: ").strip().lower()
-        if raw in ("", "all", "a"):
-            return list(range(1, count + 1))
-        if raw == "0":
-            return []
-        picked: set[int] = set()
-        valid = True
-        for token in raw.replace(",", " ").split():
-            if "-" in token:
-                low_text, _, high_text = token.partition("-")
-                if not (low_text.isdigit() and high_text.isdigit()):
-                    valid = False
-                    break
-                low, high = int(low_text), int(high_text)
-                if low < 1 or high > count or low > high:
-                    valid = False
-                    break
-                picked.update(range(low, high + 1))
-            elif token.isdigit():
-                value = int(token)
-                if value < 1 or value > count:
-                    valid = False
-                    break
-                picked.add(value)
-            else:
-                valid = False
-                break
-        if valid and picked:
-            return sorted(picked)
-        display_line(f"  ! Enter numbers between 1 and {count}, a range like 1-3, or 'all'.")
+    def ask_optional_date(self, label: str) -> str:
+        return self._console.prompt_optional_date(label)
+
+    def confirm(self, question: str) -> bool:
+        return self._console.confirm(question)
+
+    def collect_manual_tasks(self, source_name: str) -> list[Task]:
+        """Ask the user for study tasks until the title is left blank."""
+        self.show_line(f"Entering tasks for {source_name}. Leave the title blank to finish.")
+        tasks: list[Task] = []
+        while True:
+            title = self._console.prompt_line("Task title (blank to finish)", allow_empty=True)
+            if not title:
+                return tasks
+            description = self._console.prompt_line("Description", allow_empty=True)
+            category = self._console.prompt_choice("Category", list(self.TASK_CATEGORIES))
+            deadline = self._console.prompt_optional_date("Deadline YYYY-MM-DD (blank = none)")
+            minutes = self._console.prompt_int("Estimated minutes", 0, 100000)
+            difficulty = self._console.prompt_choice("Difficulty", list(Task.DIFFICULTIES))
+            priority = self._console.prompt_choice("Priority", list(Task.PRIORITIES))
+            tasks.append(Task(
+                task_id=f"manual-{len(tasks) + 1}",
+                title=title,
+                description=description,
+                category=category,
+                deadline=deadline,
+                estimated_minutes=minutes,
+                difficulty=difficulty,
+                priority=priority,
+                source_document=source_name,
+                source_type="manual",
+                confidence=1.0,
+            ))
+
+    # ----------------------------- documents -----------------------------
+
+    def discover_documents(self, folder: str) -> list[str]:
+        """Supported study documents inside a folder, in sorted order."""
+        return self._documents.discover(folder) if self._documents is not None else []
+
+    def read_document(self, path: str) -> str:
+        """Return the text of a document. Raises DocumentReadError when it cannot be read."""
+        if self._documents is None:
+            raise RuntimeError("no document loader configured")
+        return self._documents.load(path)
