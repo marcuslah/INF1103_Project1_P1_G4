@@ -29,3 +29,8 @@ Thumbs.db
 *.ics
 study_state.json
 study_guide.md
+
+# Saved plans and databases (created when the app runs)
+data/*.json
+data/*.db
+*.db
