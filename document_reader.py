@@ -94,3 +94,37 @@ class PdfDocumentReader(DocumentReader):
         if not text:
             raise DocumentReadError(f"{path}: no extractable text (image-only PDF? OCR is not supported)")
         return text
+    
+class DocumentLoader:
+    """Finds study documents and reads each one with the reader for its file type."""
+
+    def __init__(self, readers: dict[str, DocumentReader] | None = None) -> None:
+        text_reader = TextDocumentReader()
+        self._readers: dict[str, DocumentReader] = readers or {
+            ".pdf": PdfDocumentReader(),
+            ".txt": text_reader,
+            ".md": text_reader,
+            ".json": text_reader,
+        }
+        self._fallback: DocumentReader = text_reader
+
+    @property
+    def supported_extensions(self) -> tuple[str, ...]:
+        return tuple(sorted(self._readers))
+
+    def discover(self, inputs_dir: str = "inputs") -> list[str]:
+        """Supported documents inside a folder, in sorted order. Empty when the folder is missing."""
+        if not inputs_dir or not os.path.isdir(inputs_dir):
+            return []
+        return [
+            os.path.join(inputs_dir, name)
+            for name in sorted(os.listdir(inputs_dir))
+            if os.path.splitext(name)[1].lower() in self._readers
+            and os.path.isfile(os.path.join(inputs_dir, name))
+        ]
+
+    def load(self, path: str) -> str:
+        """Return a document's text. Raises DocumentReadError when it cannot be read."""
+        extension = os.path.splitext(str(path or ""))[1].lower()
+        reader = self._readers.get(extension, self._fallback)
+        return reader.read(path)             # polymorphism: every reader is used the same way
