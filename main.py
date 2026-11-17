@@ -301,3 +301,51 @@ class StudyPilotApp:
         except StorageError as error:
             self._io.show_error(f"Storage problem: {error}")
             return 1
+class AppFactory:
+    """Builds the four managers from environment variables and wires them into the app."""
+
+    def __init__(self, environ: Mapping[str, str] | None = None) -> None:
+        self._environ = environ
+
+    def _env(self, name: str, default: str = "") -> str:
+        source = self._environ if self._environ is not None else os.environ
+        return source.get(name, default) or default
+
+    def weekly_capacity_minutes(self, config: LogicConfig) -> int:
+        """Weekly study limit from STUDY_WEEKLY_CAPACITY (hours), or the configured default."""
+        try:
+            hours = float(self._env("STUDY_WEEKLY_CAPACITY", str(config.weekly_capacity_hours)))
+        except ValueError:
+            return config.weekly_capacity_minutes
+        return int(round(hours * 60)) if hours > 0 else config.weekly_capacity_minutes
+
+    def build_repository(self) -> PlanRepository:
+        """Choose the storage backend from STORAGE_BACKEND: "json" (default) or "sqlite"."""
+        backend = self._env("STORAGE_BACKEND", "json").strip().lower()
+        if backend == "sqlite":
+            return SqlitePlanRepository(self._env("PLAN_DB_PATH", SqlitePlanRepository.DEFAULT_PATH))
+        return JsonPlanRepository(self._env("PLAN_PATH", JsonPlanRepository.DEFAULT_PATH))
+
+    def build(self) -> StudyPilotApp:
+        ai_config = AIConfig.from_env()             # also loads the .env file
+        logic_config = LogicConfig()
+        return StudyPilotApp(
+            io=IOManager(ConsoleIO(), DocumentLoader()),
+            ai=AIManager(GeminiClient(ai_config)),
+            logic=LogicManager(logic_config),
+            data=DataManager(self.build_repository()),
+            weekly_capacity_minutes=self.weekly_capacity_minutes(logic_config),
+        )
+
+    def launch(self, argv: list[str] | None = None) -> int:
+        """Build the app and run it. A storage failure at start-up is reported, not crashed on."""
+        try:
+            app = self.build()
+        except StorageError as error:
+            ConsoleIO().banner("ERROR", f"Could not start: {error}")
+            return 1
+        return app.run(argv)
+
+
+if __name__ == "__main__":
+    raise SystemExit(AppFactory().launch())
