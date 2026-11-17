@@ -256,3 +256,48 @@ class StudyPilotApp:
             self._io.show_line("Cancelled.")
             return
         self.run_pipeline(files=selected)    
+
+    def _show_summary(self) -> None:
+        """New feature: workload summary across all saved plans."""
+        self._io.show_summary(self._logic.summarise(self._data.list_plans()))
+
+    # ----------------------------- running -----------------------------
+
+    def interactive_menu(self) -> int:
+        """Show the main menu until the user exits."""
+        actions: dict[str, Callable[[], None]] = {
+            "1": self._view_plans,
+            "2": self._delete_plan,
+            "3": self._search_by_week,
+            "4": self._search_by_difficulty,
+            "5": self._create_plan,
+            "6": self._show_summary,
+        }
+        while True:
+            choice = self._io.show_main_menu()
+            if choice in self.EXIT_CHOICES:
+                self._io.show_line("Goodbye.")
+                return 0
+            action = actions.get(choice)
+            if action is None:
+                self._io.show_warning("Unknown option.")
+                continue
+            try:
+                action()
+            except StorageError as error:
+                self._io.show_error(f"Storage problem: {error}")
+
+    def run(self, argv: list[str] | None = None) -> int:
+        """Parse command-line options and start the menu or the file pipeline."""
+        parser = argparse.ArgumentParser(prog="study-planner", description="AI Academic Workload Planner")
+        parser.add_argument("--file", action="append", default=[], help="path to a document (repeatable)")
+        parser.add_argument("--inputs", help="folder containing documents")
+        parser.add_argument("--interactive", action="store_true", help="launch the interactive application menu")
+        parsed = parser.parse_args(argv)
+        if parsed.interactive or not (parsed.file or parsed.inputs):
+            return self.interactive_menu()
+        try:
+            return self.run_pipeline(files=parsed.file, inputs=parsed.inputs)
+        except StorageError as error:
+            self._io.show_error(f"Storage problem: {error}")
+            return 1
