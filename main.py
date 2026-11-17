@@ -120,3 +120,139 @@ class StudyPilotApp:
             return False
         self._io.show_success(f"Plan updated: {plan.plan_id}")
         return True
+
+    def run_pipeline(self, files: list[str] | None = None, inputs: str | None = None) -> int:
+        """Non-menu workflow: read documents -> AI -> logic -> save."""
+        paths = [path for path in (files or []) if path]
+        if inputs:
+            paths.extend(self._io.discover_documents(inputs))
+        if not paths:
+            paths.extend(self._io.discover_documents(self._inputs_dir))
+        if not paths:
+            self._io.show_warning("No documents found. Provide --file, --inputs or --interactive.")
+            return 1
+        tasks, warnings = self._tasks_from_documents(paths)
+        return self._analyse_and_save(tasks, warnings)
+
+    # ----------------------------- working with one saved plan -----------------------------
+
+    def _edit_task(self, plan: StudyPlan) -> None:
+        task = self._io.select_task(plan.tasks)
+        if task is None:
+            return
+        labels = [label for _field, label in self.EDIT_FIELD_OPTIONS]
+        choice = self._io.choose_option("What would you like to edit?", labels)
+        if choice == 0:
+            return
+        field, label = self.EDIT_FIELD_OPTIONS[choice - 1]
+        if field == "difficulty":
+            value: object = self._io.ask_difficulty("New difficulty")
+        elif field == "estimated_minutes":
+            self._io.show_line(f"Current estimated time: {task.estimated_minutes} minutes")
+            value = self._io.ask_int("New estimated time in minutes", 1, 100000)
+        elif field == "deadline":
+            value = self._io.ask_text("New deadline YYYY-MM-DD (blank = none)", allow_empty=True)
+        else:
+            value = self._io.ask_text("New task name")
+        try:
+            self._logic.edit_task(plan, task.task_id, field, value, self._weekly_capacity, date.today())
+        except TaskEditError as error:
+            self._io.show_error(str(error))
+            return
+        if self._save_changes(plan):
+            self._io.show_info(f"Updated {label} on task {task.task_id}.")
+
+    def _delete_task(self, plan: StudyPlan) -> None:
+        task = self._io.select_task(plan.tasks)
+        if task is None:
+            return
+        if not self._io.confirm(f"Delete task {task.task_id}?"):
+            self._io.show_line("Cancelled.")
+            return
+        try:
+            self._logic.remove_task(plan, task.task_id, self._weekly_capacity, date.today())
+        except TaskEditError as error:
+            self._io.show_error(str(error))
+            return
+        if self._save_changes(plan):
+            self._io.show_info(f"Deleted task {task.task_id}.")
+
+    def _plan_menu(self, plan: StudyPlan) -> None:
+        """Submenu for one selected plan."""
+        actions: dict[str, Callable[[], None]] = {
+            "1": lambda: self._io.show_tasks(plan.tasks),
+            "2": lambda: self._io.show_weekly_plan(plan.weekly_plan),
+            "3": lambda: self._io.show_metrics(plan.metrics),
+            "4": lambda: self._edit_task(plan),
+            "5": lambda: self._delete_task(plan),
+        }
+        while True:
+            choice = self._io.show_plan_menu(plan.plan_id)
+            if choice == "6":
+                return
+            action = actions.get(choice)
+            if action is None:
+                self._io.show_warning("Unknown option.")
+            else:
+                action()
+
+    # ----------------------------- main menu actions -----------------------------
+
+    def _view_plans(self) -> None:
+        plan = self._io.select_plan(self._data.list_plans())
+        if plan is not None:
+            self._plan_menu(plan)
+
+    def _delete_plan(self) -> None:
+        plan = self._io.select_plan(self._data.list_plans())
+        if plan is None:
+            return
+        if not self._io.confirm(f"Delete plan {plan.plan_id}?"):
+            self._io.show_line("Cancelled.")
+            return
+        if self._data.delete_plan(plan.plan_id):
+            self._io.show_success(f"Deleted plan {plan.plan_id}.")
+        else:
+            self._io.show_error("Plan not found.")
+
+    def _search_by_week(self) -> None:
+        plan = self._io.select_plan(self._data.list_plans())
+        if plan is None:
+            return
+        week_index = self._io.ask_int("Week number", 1, 1000)
+        tasks = self._logic.query(plan).tasks_in_week(week_index)
+        self._io.show_week_view(week_index, plan.week(week_index), tasks)
+
+    def _search_by_difficulty(self) -> None:
+        plan = self._io.select_plan(self._data.list_plans())
+        if plan is None:
+            return
+        difficulty = self._io.ask_difficulty()
+        query = self._logic.query(plan)
+        self._io.show_difficulty_view(difficulty, query.tasks_by_difficulty(difficulty), query.task_week_map())
+        everywhere = self._data.find_tasks(difficulty=difficulty)
+        self._io.show_line(f"Across all saved plans: {len(everywhere)} {difficulty} task(s)")
+
+    def _create_plan(self) -> None:
+        choice = self._io.choose_option(
+            "Create plan from:",
+            [f"Select documents from {self._inputs_dir}/", "A specific file", "Enter tasks manually"],
+        )
+        if choice == 1:
+            self._create_plan_from_inputs()
+        elif choice == 2:
+            self.run_pipeline(files=[self._io.ask_text("Document file path")])
+        elif choice == 3:
+            tasks, warnings = self._tasks_from_user()
+            self._analyse_and_save(tasks, warnings)
+
+    def _create_plan_from_inputs(self) -> None:
+        paths = self._io.discover_documents(self._inputs_dir)
+        if not paths:
+            self._io.show_warning(f"No documents found in {self._inputs_dir}/.")
+            return
+        selected = self._io.select_documents(paths, self._inputs_dir)
+        if not selected:
+            self._io.show_line("Cancelled.")
+            return
+        self.run_pipeline(files=selected)    
