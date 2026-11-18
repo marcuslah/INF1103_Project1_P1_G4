@@ -1,454 +1,229 @@
-# StudyPilot AI Academic Workload Planner
+# StudyPilot — AI Academic Workload Planner
 
-An AI-powered academic workload planner that extracts study tasks from
-syllabus and course documents, estimates workload, applies planning
-logic, and saves a weekly study plan.
+StudyPilot reads academic documents (syllabuses, lab sheets, tutorial sheets),
+uses an AI model to extract the study tasks in them, applies planning rules,
+and saves a week-by-week study plan.
+
+Phase 2 of the INF1103 team project: the Phase 1 procedural application has been
+refactored into an object-oriented system.
 
 ------------------------------------------------------------------------
 
-## Quick Start --- Docker
+## Quick start with Docker
 
-Docker is the recommended way to run the project because it provides the
-required Python environment and dependencies inside a container.
+Docker is the recommended way to run the project. Nothing needs to be installed
+on your machine except Docker Desktop.
 
 ### 1. Clone the repository
 
-Open PowerShell or a terminal and clone the **main submission
-repository**:
-
-``` powershell
+```powershell
 git clone https://github.com/marcuslah/INF1103_Project1_P1_G4.git
 cd INF1103_Project1_P1_G4
 ```
 
-Run `dir` in PowerShell (or `ls` in macOS/Linux) to check that you are
-in the project root containing `Dockerfile`, `requirements.txt`, and
-`main.py`.
+### 2. Create your `.env` file
 
-### 2. Install and start Docker
+Copy `.env.example` to `.env` and add your Gemini API key:
 
-Install Docker Desktop and make sure it is running before continuing.
-
-### 3. Create your `.env` file
-
-Copy `.env.example` and name the copy `.env`. Add your OpenRouter API
-key:
-
-``` env
-OPENROUTER_API_KEY=your_openrouter_api_key_here
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-**Never commit or share `.env`.** It contains your private API key. Keep
-the actual key out of source code and Git.
+**Never commit or share `.env`.** It is listed in `.gitignore`.
 
-### 4. Add your documents
+### 3. Build the image
 
-Place academic documents in the `inputs/` folder.
-
-Supported formats:
-
--   PDF
--   TXT
--   MD
--   JSON
-
-### 5. Build the Docker image
-
-Run this from the project root:
-
-``` powershell
-docker build -t workload-planner .
+```powershell
+docker build -t studypilot .
 ```
 
-### 6. Run the planner
+### 4. Run the automated tests
 
-#### Option A --- Interactive mode (recommended when choosing documents)
+The tests need no API key and no internet connection.
 
-``` powershell
+```powershell
+docker run --rm studypilot python -m pytest -q
+```
+
+### 5. Run the application
+
+Put your documents in the `inputs/` folder, then start the interactive menu:
+
+```powershell
 docker run --rm -it `
   -v "${PWD}/inputs:/app/inputs" `
   -v "${PWD}/data:/app/data" `
   --env-file .env `
-  workload-planner --interactive
+  studypilot
 ```
 
-The interactive menu lets you manage saved plans and choose which
-documents to process when creating a new plan.
+To process every document in `inputs/` without the menu:
 
-#### Option B --- Process all supported documents in `inputs/`
-
-``` powershell
+```powershell
 docker run --rm `
   -v "${PWD}/inputs:/app/inputs" `
   -v "${PWD}/data:/app/data" `
   --env-file .env `
-  workload-planner --inputs inputs/
+  studypilot python main.py --inputs inputs/
 ```
 
-This processes supported documents found in `inputs/` without asking you
-to select them individually.
+The `inputs/` mount gives the container your documents. The `data/` mount keeps
+saved plans on your computer after the container exits.
 
-The `inputs/` mount gives the container access to your documents. The
-`data/` mount keeps saved plans on your computer after the container
-exits.
-
-> These multiline commands use PowerShell syntax. In Windows Command
-> Prompt (CMD), use `^` for line continuation instead of the PowerShell
-> backtick.
+> These multi-line commands use PowerShell syntax. In Command Prompt use `^`
+> instead of the backtick; in macOS/Linux use `\` and `$(pwd)` instead of `${PWD}`.
 
 ------------------------------------------------------------------------
 
-## Interactive Mode
+## Run directly with Python
 
-Interactive mode is useful when you want to choose specific documents or
-manage saved plans.
+Requires Python 3.11 or newer.
 
-### With Docker
-
-``` powershell
-docker run --rm -it `
-  -v "${PWD}/inputs:/app/inputs" `
-  -v "${PWD}/data:/app/data" `
-  --env-file .env `
-  workload-planner --interactive
+```bash
+python -m pip install -r requirements.txt
+python -m pytest -q                      # run the tests
+python main.py                           # interactive menu
+python main.py --inputs inputs/          # process a folder
+python main.py --file inputs/week3.pdf   # process one file (repeatable)
 ```
-
-### With Python
-
-After installing the dependencies (see [Run directly with
-Python](#run-directly-with-python)), run:
-
-``` bash
-python main.py --interactive
-```
-
-The menu lets you view saved plans, delete a plan, search tasks by week
-or difficulty, create a new plan, and exit.
-
-When creating a plan, choose the document-selection option. The
-available documents are shown as a numbered list. Depending on the
-prompt, you can select:
-
--   One document, such as `1`
--   Multiple documents, such as `1,3`
--   A range, such as `1-3`
--   All documents, using `all`
--   Cancel selection, using `0`
--   Press Enter to use all documents, if the prompt offers that default
-
-Only selected documents are processed. The original files in `inputs/`
-are not modified.
 
 ------------------------------------------------------------------------
 
-## The Idea
+## Environment variables
 
-University students receive academic information across multiple
-documents, such as syllabuses, lecture notes, lab instructions, tutorial
-sheets, and weekly schedules. Manually turning these documents into a
-structured study plan can be time-consuming.
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `GEMINI_API_KEY` | Yes, for AI features | none | Key for the Gemini API |
+| `GEMINI_MODEL` | No | `gemini-3.8-flash` | AI model name |
+| `REQUEST_TIMEOUT` | No | `30` | Seconds to wait for the AI before timing out |
+| `STUDY_WEEKLY_CAPACITY` | No | `20` | Weekly study limit in hours |
+| `STORAGE_BACKEND` | No | `json` | `json` or `sqlite` (see Advanced feature) |
+| `PLAN_PATH` | No | `data/study_plans.json` | JSON storage file |
+| `PLAN_DB_PATH` | No | `data/study_plans.db` | SQLite database file |
 
-The planner is designed to:
+Without an API key the application still starts. Document extraction reports a
+clear error, and manually entered tasks are kept with a warning that the AI
+review was unavailable.
 
-1.  Read academic documents.
-2.  Extract study tasks using an AI model when AI extraction is
-    required.
-3.  Normalize tasks into a structured format.
-4.  Calculate workload and risk metrics.
-5.  Apply planning and scheduling logic.
-6.  Save the resulting study plan.
-7.  Let users search, edit, and manage saved plans.
+------------------------------------------------------------------------
 
-**Note:** Not every input necessarily requires an API call. For example,
-a valid JSON input that already contains a top-level `tasks` list can be
-normalized directly without AI extraction.
+## Main menu
+
+```
+1. View saved plans
+2. Delete a plan
+3. Search tasks by week
+4. Search tasks by difficulty
+5. Create new plan
+6. Workload summary
+7. Exit
+```
+
+Supported input files: `.pdf`, `.txt`, `.md`, `.json`. Image-only (scanned) PDFs
+are not supported because there is no OCR.
 
 ------------------------------------------------------------------------
 
 ## Architecture
 
-The project uses a procedural architecture with separate managers for
-different responsibilities. `main.py` coordinates the application; the
-managers are not a strict one-way pipeline because the exact path
-depends on the input and operation.
+`main.py` holds `StudyPilotApp`, which coordinates four managers. Managers pass
+objects (`Task`, `StudyPlan`) to each other; only the Data Manager converts
+them to dictionaries for storage.
 
-``` text
-                         main.py
-                    (orchestrates flow)
-                            |
-             +--------------+--------------+
-             |              |              |
-        io_manager.py  ai_manager.py  logic_manager.py
-             |              ^              |
-             +---- data_manager.py --------+
-                    (persistent data)
+```text
+User input -> IO Manager -> AI Manager -> Logic Manager -> Data Manager -> IO Manager (display)
 ```
 
-### `main.py`
+| Manager | Main class | Files | Responsibility |
+|---|---|---|---|
+| IO | `IOManager` | `io_manager.py`, `io_console.py`, `io_renderer.py`, `document_reader.py` | All input, output and document reading |
+| AI | `AIManager` | `ai_manager.py`, `ai_client.py`, `ai_prompts.py`, `ai_parser.py`, `ai_config.py`, `ai_errors.py` | Build prompts, call the API, parse and validate the reply |
+| Logic | `LogicManager` | `logic_manager.py`, `logic_rules.py`, `logic_metrics.py`, `logic_scheduler.py`, `logic_queries.py`, `logic_summary.py`, `logic_config.py` | Business rules R1-R7, metrics, weekly schedule |
+| Data | `DataManager` | `data_manager.py`, `repository.py`, `json_repository.py`, `sqlite_repository.py` | Save, load and query plans |
 
-Coordinates the application flow and calls the relevant managers.
+Shared domain classes (`Task`, `StudyPlan`, `Decision`, `WeekSchedule`,
+`PlanAnalysis`) are in `models.py`.
 
-### `io_manager.py`
+**Every record passes through the AI Manager.** Free-text documents are sent for
+task extraction. JSON task files and manually typed tasks are sent for AI review,
+which can correct difficulty and priority and fill in a missing time estimate.
 
-Handles:
+### Business rules
 
--   User input and CLI output
--   File discovery and document selection
--   Reading supported input files
--   Input validation and display formatting
+The first rule that applies decides the task.
 
-`print()` and `input()` are kept inside this module.
-
-### `ai_manager.py`
-
-Handles AI extraction and response processing when required, including:
-
--   Sending extracted document text to OpenRouter
--   Using the configured DeepSeek model
--   Parsing and sanitizing AI responses
--   Normalizing task records
--   Handling AI/API failures
-
-### `logic_manager.py`
-
-Handles deterministic planning logic, including:
-
--   Duplicate-task detection
--   Workload and risk calculations
--   Task decisions using rules R1--R7
--   Deadline and capacity considerations
--   Weekly scheduling and rebalancing
--   Task-edit validation and plan recalculation
-
-### `data_manager.py`
-
-Handles persistent data operations, including:
-
--   Parsing JSON safely
--   Loading and saving plans
--   Updating and deleting plans
--   Backup and recovery for corrupted JSON
--   Supporting data migration
+| Rule | Condition | Decision |
+|---|---|---|
+| R1 | Category is reading, priority is low, and the week would exceed capacity | REJECT |
+| R2 | Priority is low and the task takes under 20 minutes | REJECT |
+| R3 | Exam or project due within 7 days | FLAG |
+| R4 | Burnout index is 80 or more | FLAG |
+| R5 | Deadline is within 2 days of another task's deadline | FLAG |
+| R6 | One task needs more than 720 minutes | FLAG |
+| R7 | None of the above | ACCEPT |
 
 ------------------------------------------------------------------------
 
-## Requirements
+## New feature: workload summary
 
-### Recommended
+Menu option 6 shows one summary across **all** saved plans: total workload,
+minutes per category, tasks per difficulty, the busiest calendar weeks, how many
+tasks were accepted, flagged and rejected, and a list of every flagged task.
 
--   Docker Desktop
--   An OpenRouter API key for AI extraction
+Classes: `PlanSummaryReport` (`logic_summary.py`), `TableRenderer.summary`
+(`io_renderer.py`), `StudyPilotApp._show_summary` (`main.py`).
+Tests: `test_summary.py`, plus summary tests in `test_io_manager.py` and `test_app.py`.
 
-### Run directly with Python
+## Advanced feature: database integration
 
-You can also run the project without Docker.
+Plans can be stored in a SQLite database instead of the JSON file, with full
+create, read, update and delete. Set this in `.env`:
 
-Requirements:
-
--   Python version compatible with the dependencies in
-    `requirements.txt`
--   An OpenRouter API key for workflows that require AI extraction
-
-Install dependencies from the project root:
-
-``` bash
-python -m pip install -r requirements.txt
+```env
+STORAGE_BACKEND=sqlite
 ```
 
-Start interactive mode:
+`SqlitePlanRepository` and `JsonPlanRepository` both implement the
+`PlanRepository` interface, so the rest of the application does not change.
+SQLite is part of Python's standard library, so Docker needs no extra setup.
+The database file is created in `data/`, which is kept by the `data/` volume mount.
 
-``` bash
-python main.py --interactive
-```
-
-Process all supported documents in the input folder:
-
-``` bash
-python main.py --inputs inputs/
-```
-
-Process one or more individual documents:
-
-``` bash
-python main.py --file "inputs/lecture_notes.pdf"
-```
-
-``` bash
-python main.py --file "inputs/lecture_notes.pdf" --file "inputs/tutorial.txt"
-```
-
-**Important:** `--file` expects a document file, not a folder. This is
-invalid:
-
-``` bash
-python main.py --file inputs/
-```
-
-Use `--inputs inputs/` to process a folder.
-
-------------------------------------------------------------------------
-
-## Supported Input Types
-
-  -----------------------------------------------------------------------
-  Format                  Extension               Notes
-  ----------------------- ----------------------- -----------------------
-  PDF                     `.pdf`                  Text is extracted
-                                                  locally using `pypdf`.
-                                                  Image-only scanned PDFs
-                                                  need OCR, which is not
-                                                  currently included.
-
-  Text                    `.txt`                  Plain text
-
-  Markdown                `.md`                   Markdown text
-
-  JSON                    `.json`                 Structured input can
-                                                  bypass AI extraction
-                                                  when it contains a
-                                                  valid top-level `tasks`
-                                                  list.
-  -----------------------------------------------------------------------
-
-Place documents in `inputs/` for interactive or folder-based workflows.
-
-------------------------------------------------------------------------
-
-## AI Model
-
-The project accesses the configured DeepSeek model through OpenRouter:
-
-``` text
-deepseek/deepseek-v4-flash
-```
-
-Provide the API key through `.env`:
-
-``` env
-OPENROUTER_API_KEY=your_openrouter_api_key_here
-```
-
-Never commit an actual API key to GitHub or hard-code it in source code.
-The `.env.example` file should contain only a placeholder.
-
-------------------------------------------------------------------------
-
-## Study Task Schema
-
-A task is represented using structured fields. A simplified example is:
-
-``` json
-{
-  "title": "Complete Week 3 Lab",
-  "difficulty": "medium",
-  "estimated_minutes": 90,
-  "deadline": "2026-10-10"
-}
-```
-
-The planner can also use fields such as `task_id`, `description`,
-`category`, `priority`, `dependencies`, `source_document`,
-`source_type`, and `confidence`, depending on the input and
-normalization process.
-
-For structured JSON input, the outer object should contain a top-level
-`tasks` list, for example:
-
-``` json
-{
-  "source_document": "example.json",
-  "tasks": [
-    {
-      "title": "Complete Week 3 Lab",
-      "difficulty": "medium",
-      "estimated_minutes": 90,
-      "deadline": "2026-10-10"
-    }
-  ]
-}
-```
-
-Valid JSON syntax alone does not guarantee that every task has all the
-expected fields; the application normalizes task records.
-
-------------------------------------------------------------------------
-
-## Persistence
-
-Generated plans are stored in:
-
-``` text
-data/study_plans.json
-```
-
-The application includes backup and recovery mechanisms for saved data.
-
-When running with Docker, mount `data/` as shown in the commands above
-if you want plans to remain available after the container exits.
+Tests: `test_sqlite_repository.py`, and the shared storage tests in
+`test_data_manager.py` run against both backends.
 
 ------------------------------------------------------------------------
 
 ## Testing
 
-The project includes automated tests for planning logic and interactive
-functionality.
-
-Run the tests from the project root:
-
-``` bash
-python -m pytest test_logic.py test_interactive.py -q
+```bash
+python -m pytest -q
 ```
 
-These tests are designed to run without making an OpenRouter API call.
+| Test file | Covers |
+|---|---|
+| `test_models.py` | `Task`, `StudyPlan`, `Decision`, `WeekSchedule` |
+| `test_ai_manager.py` | AI pipeline with a fake client: malformed replies, bad schema, timeouts, retries |
+| `test_logic.py` | Rules R1-R7 with hardcoded sample AI output, the pipeline, edits, queries |
+| `test_logic_planning.py` | Metrics, timeline hints, session splitting, weekly schedule |
+| `test_summary.py` | New feature: workload summary |
+| `test_data_manager.py` | Storage interface on JSON and SQLite, missing and corrupt files |
+| `test_sqlite_repository.py` | Advanced feature: database storage |
+| `test_io_manager.py` | Input validation, tables, menus |
+| `test_document_reader.py` | Reading text and PDF files, missing and unreadable files |
+| `test_app.py` | The whole application end to end with a fake keyboard and fake AI |
+
+No test contacts the live API.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request. It installs the
+dependencies, runs the test suite, builds the Docker image, and runs the test
+suite again inside the container. Results are on the repository's **Actions** tab.
 
 ------------------------------------------------------------------------
 
-## Project Structure
+## Persistence
 
-``` text
-.
-├── ai_manager.py
-├── data_manager.py
-├── io_manager.py
-├── logic_manager.py
-├── main.py
-├── inputs/
-│   └── Academic documents
-├── data/
-│   └── study_plans.json
-├── tests/
-│   └── Test files (if present in this checkout)
-├── .env.example
-├── .gitignore
-├── Dockerfile
-├── requirements.txt
-├── SPEC.md
-├── CHECKLIST.md
-└── README.md
-```
-
-The exact files and test layout may vary slightly by repository
-revision.
-
-------------------------------------------------------------------------
-
-## Security
-
--   Keep API keys and other secrets in `.env`.
--   Do not commit `.env`, passwords, or files containing real
-    credentials.
--   Use `.env.example` as a template with placeholder values only.
--   Before committing, inspect `git status` and the staged diff to
-    confirm that secrets are not included.
-
-------------------------------------------------------------------------
-
-## Notes
-
-The planner is a command-line application and does not require a
-graphical user interface.
-
-Docker is recommended for a consistent runtime environment. Use
-`--interactive` when you want the interactive menu, and
-`--inputs inputs/` when you want to process all supported documents in
-the input folder.
+By default plans are stored in `data/study_plans.json`. A missing file starts an
+empty store. A corrupt file is copied to `data/study_plans.corrupt.<timestamp>.json`
+and the application starts with an empty store rather than crashing.
